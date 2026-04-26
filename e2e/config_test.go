@@ -17,10 +17,10 @@ func TestConfigShowAll(t *testing.T) {
 
 	// Verify expected keys are present.
 	expectedKeys := []string{
-		"version", "board.name", "board.description", "tasks_dir",
+		"version", "board.name", "board.description", "storage.ref", "storage.notifications.mode",
 		"statuses", "priorities", "defaults.status", "defaults.priority", "defaults.class",
 		"wip_limits", "claim_timeout", "classes",
-		"tui.title_lines", "tui.hide_empty_columns", "tui.age_thresholds", "next_id",
+		"tui.title_lines", "tui.hide_empty_columns", "tui.age_thresholds",
 	}
 	for _, key := range expectedKeys {
 		if _, ok := cfg[key]; !ok {
@@ -120,15 +120,15 @@ func TestConfigSetTUIHideEmptyColumns(t *testing.T) {
 	}
 }
 
-func TestConfigSetReadOnlyKey(t *testing.T) {
+func TestConfigSetLegacyStorageKey(t *testing.T) {
 	kanbanDir := initBoard(t)
 
 	errResp := runKanbanJSONError(t, kanbanDir, "config", "set", "next_id", "99")
 	if errResp.Code != codeInvalidInput {
 		t.Errorf("code = %q, want INVALID_INPUT", errResp.Code)
 	}
-	if !strings.Contains(errResp.Error, "read-only") {
-		t.Errorf("error = %q, want 'read-only'", errResp.Error)
+	if !strings.Contains(errResp.Error, "unknown config key") {
+		t.Errorf("error = %q, want 'unknown config key'", errResp.Error)
 	}
 }
 

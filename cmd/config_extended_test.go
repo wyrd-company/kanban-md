@@ -197,8 +197,8 @@ func TestConfigAccessors_GetReadOnlyValues(t *testing.T) {
 	}{
 		{"statuses", true},
 		{"priorities", true},
-		{"tasks_dir", true},
-		{"next_id", true},
+		{"storage.ref", true},
+		{"storage.notifications.mode", true},
 		{"version", true},
 		{"wip_limits", true},
 		{"classes", true},

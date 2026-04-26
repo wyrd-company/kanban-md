@@ -481,16 +481,16 @@ Available keys:
 | `defaults.status` | yes | Default status for new tasks |
 | `defaults.priority` | yes | Default priority for new tasks |
 | `defaults.class` | yes | Default class of service for new tasks |
+| `storage.ref` | no | Git ref that stores board snapshots |
+| `storage.notifications.mode` | no | Live refresh mode (`auto`, `hook`, or `poll`) |
 | `statuses` | no | List of statuses |
 | `priorities` | no | List of priorities |
-| `tasks_dir` | no | Tasks directory name |
 | `wip_limits` | no | WIP limits per status |
 | `claim_timeout` | yes | Claim expiration duration (e.g. `1h`, `30m`) |
 | `classes` | no | Class of service definitions |
 | `tui.title_lines` | yes | Number of title lines shown in TUI cards |
 | `tui.hide_empty_columns` | yes | Hide columns with zero tasks in TUI |
 | `tui.age_thresholds` | no | TUI age color thresholds |
-| `next_id` | no | Next task ID |
 | `version` | no | Config schema version |
 
 ### `context`

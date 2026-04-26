@@ -27,7 +27,8 @@ func TestAllConfigKeys_ExpectedCoverage(t *testing.T) {
 		"version",
 		"board.name",
 		"board.description",
-		"tasks_dir",
+		"storage.ref",
+		"storage.notifications.mode",
 		"statuses",
 		"priorities",
 		"defaults.status",
@@ -39,7 +40,6 @@ func TestAllConfigKeys_ExpectedCoverage(t *testing.T) {
 		"tui.title_lines",
 		"tui.hide_empty_columns",
 		"tui.age_thresholds",
-		"next_id",
 	}
 
 	if len(keys) != len(expected) {
@@ -209,7 +209,7 @@ func TestConfigAccessors_SetTUIHideEmptyColumns_Invalid(t *testing.T) {
 func TestConfigAccessors_ReadOnlyKeys(t *testing.T) {
 	accessors := configAccessors()
 	readOnlyKeys := []string{
-		"statuses", "priorities", "tasks_dir", "next_id", "version",
+		"statuses", "priorities", "storage.ref", "storage.notifications.mode", "version",
 		"wip_limits", "classes", "tui.age_thresholds",
 	}
 

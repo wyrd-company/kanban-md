@@ -96,11 +96,11 @@ func baseConfigAccessors() map[string]configAccessor {
 			},
 			writable: true,
 		},
-		"tasks_dir": {
-			get: func(c *config.Config) any { return c.TasksDir },
+		"storage.ref": {
+			get: func(c *config.Config) any { return c.Storage.Ref },
 		},
-		"next_id": {
-			get: func(c *config.Config) any { return c.NextID },
+		"storage.notifications.mode": {
+			get: func(c *config.Config) any { return c.Storage.Notifications.Mode },
 		},
 		"version": {
 			get: func(c *config.Config) any { return c.Version },
@@ -185,7 +185,8 @@ func allConfigKeys() []string {
 		"version",
 		"board.name",
 		"board.description",
-		"tasks_dir",
+		"storage.ref",
+		"storage.notifications.mode",
 		"statuses",
 		"priorities",
 		"defaults.status",
@@ -197,7 +198,6 @@ func allConfigKeys() []string {
 		"tui.title_lines",
 		"tui.hide_empty_columns",
 		"tui.age_thresholds",
-		"next_id",
 	}
 }
 
