@@ -156,6 +156,7 @@ func initBoardWithWIP(t *testing.T, limit int) string {
 	t.Helper()
 
 	dir := t.TempDir()
+	initGitRepo(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 
 	args := []string{
@@ -200,6 +201,7 @@ func TestWIPUnlimitedByDefault(t *testing.T) {
 
 func TestInitWithWIPLimits(t *testing.T) {
 	dir := t.TempDir()
+	initGitRepo(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 
 	r := runKanban(t, kanbanDir, "--json", "init",

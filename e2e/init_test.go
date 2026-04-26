@@ -13,6 +13,7 @@ import (
 
 func TestInitDefault(t *testing.T) {
 	dir := t.TempDir()
+	initGitRepo(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 
 	var got map[string]string
@@ -30,13 +31,14 @@ func TestInitDefault(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(kanbanDir, "config.yml")); err != nil {
 		t.Errorf("config.yml not found: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(kanbanDir, "tasks")); err != nil {
-		t.Errorf("tasks/ not found: %v", err)
+	if _, err := os.Stat(filepath.Join(kanbanDir, "tasks")); !os.IsNotExist(err) {
+		t.Errorf("tasks/ should not be created, stat err: %v", err)
 	}
 }
 
 func TestInitWithName(t *testing.T) {
 	dir := t.TempDir()
+	initGitRepo(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 
 	var got map[string]string
@@ -49,6 +51,7 @@ func TestInitWithName(t *testing.T) {
 
 func TestInitCustomStatuses(t *testing.T) {
 	dir := t.TempDir()
+	initGitRepo(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 
 	var got map[string]string
@@ -80,6 +83,7 @@ func TestInitShowsSkillHint(t *testing.T) {
 	_ = kanbanDir
 	// Re-run init to capture output (initBoard doesn't return stdout).
 	dir := t.TempDir()
+	initGitRepo(t, dir)
 	kanbanDir2 := filepath.Join(dir, "kanban")
 	r := runKanban(t, kanbanDir2, "init")
 	if r.exitCode != 0 {

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/antopolskiy/kanban-md/internal/clierr"
 	"github.com/antopolskiy/kanban-md/internal/config"
 	"github.com/antopolskiy/kanban-md/internal/output"
+	"github.com/antopolskiy/kanban-md/internal/store"
 	"github.com/antopolskiy/kanban-md/internal/task"
 )
 
@@ -84,6 +86,10 @@ func moveSingleTask(cfg *config.Config, id int, cmd *cobra.Command, args []strin
 // Returns (task, oldStatus, error). If the task was already at the target status
 // (idempotent), oldStatus is empty and the task is returned unchanged.
 func executeMove(cfg *config.Config, id int, cmd *cobra.Command, args []string) (*task.Task, string, error) {
+	if cfg.UsesRefStorage() {
+		return executeMoveRef(cfg, id, cmd, args)
+	}
+
 	path, err := task.FindByID(cfg.TasksPath(), id)
 	if err != nil {
 		return nil, "", err
@@ -135,6 +141,60 @@ func executeMove(cfg *config.Config, id int, cmd *cobra.Command, args []string) 
 
 	logActivity(cfg, "move", id, oldStatus+" -> "+newStatus)
 	return t, oldStatus, nil
+}
+
+func executeMoveRef(cfg *config.Config, id int, cmd *cobra.Command, args []string) (*task.Task, string, error) {
+	st, err := newStore(cfg)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var moved *task.Task
+	oldStatus := ""
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		t, findErr := findTaskInSnapshot(snap.Tasks, id)
+		if findErr != nil {
+			return findErr
+		}
+
+		claimant, _ := cmd.Flags().GetString("claim")
+		if claimErr := validateMoveClaim(cfg, t, claimant); claimErr != nil {
+			return claimErr
+		}
+
+		newStatus, statusErr := resolveTargetStatus(cmd, args, t, cfg)
+		if statusErr != nil {
+			return statusErr
+		}
+		if t.Status == newStatus {
+			moved = t
+			return nil
+		}
+		if cfg.StatusRequiresClaim(newStatus) && claimant == "" {
+			return task.ValidateClaimRequired(newStatus)
+		}
+		if wipErr := enforceSnapshotWIPLimit(cfg, snap.Tasks, t, t.Status, newStatus); wipErr != nil {
+			return wipErr
+		}
+		if t.Blocked {
+			fmt.Fprintf(os.Stderr, "Warning: task #%d is blocked (%s)\n", t.ID, t.BlockReason)
+		}
+
+		oldStatus = t.Status
+		t.Status = newStatus
+		task.UpdateTimestamps(t, oldStatus, newStatus, cfg)
+		applyMoveClaim(cmd, t, claimant)
+		t.Updated = time.Now()
+		moved = t
+		return nil
+	}); err != nil {
+		return nil, "", err
+	}
+
+	if oldStatus != "" {
+		logActivity(cfg, "move", id, oldStatus+" -> "+moved.Status)
+	}
+	return moved, oldStatus, nil
 }
 
 // validateMoveClaim checks claim ownership before allowing a move.

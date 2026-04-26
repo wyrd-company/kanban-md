@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"os"
 	"slices"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"github.com/antopolskiy/kanban-md/internal/clierr"
 	"github.com/antopolskiy/kanban-md/internal/config"
 	"github.com/antopolskiy/kanban-md/internal/output"
-	"github.com/antopolskiy/kanban-md/internal/store"
 	"github.com/antopolskiy/kanban-md/internal/task"
 )
 
@@ -135,11 +133,7 @@ func runList(cmd *cobra.Command, _ []string) error {
 
 func loadTaskList(cfg *config.Config, opts board.ListOptions) ([]*task.Task, error) {
 	if cfg.UsesRefStorage() {
-		st, err := store.NewGitStore(context.Background(), cfg)
-		if err != nil {
-			return nil, err
-		}
-		snap, err := st.Load(context.Background())
+		snap, err := loadSnapshot(cfg)
 		if err != nil {
 			return nil, err
 		}

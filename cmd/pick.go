@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/antopolskiy/kanban-md/internal/clierr"
 	"github.com/antopolskiy/kanban-md/internal/config"
 	"github.com/antopolskiy/kanban-md/internal/output"
+	"github.com/antopolskiy/kanban-md/internal/store"
 	"github.com/antopolskiy/kanban-md/internal/task"
 )
 
@@ -71,6 +73,10 @@ func validatePickFlags(cfg *config.Config, statusFilter, moveTarget string) erro
 }
 
 func executePick(cfg *config.Config, claimant, statusFilter, moveTarget string, tags []string) (*task.Task, string, error) {
+	if cfg.UsesRefStorage() {
+		return executePickRef(cfg, claimant, statusFilter, moveTarget, tags)
+	}
+
 	allTasks, warnings, err := task.ReadAllLenient(cfg.TasksPath())
 	if err != nil {
 		return nil, "", err
@@ -122,6 +128,54 @@ func executePick(cfg *config.Config, claimant, statusFilter, moveTarget string, 
 		logActivity(cfg, "move", picked.ID, oldStatus+" -> "+picked.Status)
 	}
 
+	return picked, oldStatus, nil
+}
+
+func executePickRef(cfg *config.Config, claimant, statusFilter, moveTarget string, tags []string) (*task.Task, string, error) {
+	st, err := newStore(cfg)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var picked *task.Task
+	oldStatus := ""
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		opts := board.PickOptions{
+			ClaimTimeout: cfg.ClaimTimeoutDuration(),
+			Tags:         tags,
+		}
+		if statusFilter != "" {
+			opts.Statuses = []string{statusFilter}
+		}
+		t := board.Pick(cfg, snap.Tasks, opts)
+		if t == nil {
+			return clierr.New(clierr.NothingToPick, "no unblocked, unclaimed tasks found")
+		}
+
+		now := time.Now()
+		t.ClaimedBy = claimant
+		t.ClaimedAt = &now
+
+		if moveTarget != "" && t.Status != moveTarget {
+			if moveErr := enforceSnapshotWIPLimit(cfg, snap.Tasks, t, t.Status, moveTarget); moveErr != nil {
+				return moveErr
+			}
+			oldStatus = t.Status
+			task.UpdateTimestamps(t, oldStatus, moveTarget, cfg)
+			t.Status = moveTarget
+		}
+
+		t.Updated = time.Now()
+		picked = t
+		return nil
+	}); err != nil {
+		return nil, "", err
+	}
+
+	logActivity(cfg, "claim", picked.ID, claimant)
+	if oldStatus != "" {
+		logActivity(cfg, "move", picked.ID, oldStatus+" -> "+picked.Status)
+	}
 	return picked, oldStatus, nil
 }
 

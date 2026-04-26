@@ -1,7 +1,6 @@
 package e2e_test
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -94,7 +93,7 @@ func TestEditFields(t *testing.T) {
 
 func TestEditTitleRename(t *testing.T) {
 	kanbanDir := initBoard(t)
-	original := mustCreateTask(t, kanbanDir, "Original title")
+	mustCreateTask(t, kanbanDir, "Original title")
 
 	var updated taskJSON
 	runKanbanJSON(t, kanbanDir, &updated, "edit", "1", "--title", "New title")
@@ -103,15 +102,6 @@ func TestEditTitleRename(t *testing.T) {
 		t.Errorf("Title = %q, want %q", updated.Title, "New title")
 	}
 
-	// Old file removed.
-	if _, err := os.Stat(original.File); !os.IsNotExist(err) {
-		t.Errorf("old file %q still exists", original.File)
-	}
-
-	// New file exists with correct slug.
-	if _, err := os.Stat(updated.File); err != nil {
-		t.Errorf("new file %q not found: %v", updated.File, err)
-	}
 	if !strings.Contains(filepath.Base(updated.File), "new-title") {
 		t.Errorf("filename %q missing 'new-title'", filepath.Base(updated.File))
 	}

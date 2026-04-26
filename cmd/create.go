@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/antopolskiy/kanban-md/internal/board"
 	"github.com/antopolskiy/kanban-md/internal/clierr"
 	"github.com/antopolskiy/kanban-md/internal/config"
 	"github.com/antopolskiy/kanban-md/internal/date"
@@ -182,38 +181,6 @@ func runCreateRef(cmd *cobra.Command, args []string, cfg *config.Config) error {
 
 	logActivity(cfg, "create", created.ID, created.Title)
 	return outputCreateResult(created, created.File)
-}
-
-func validateDepsInSnapshot(tasks []*task.Task, t *task.Task) error {
-	seen := make(map[int]bool, len(tasks))
-	for _, existing := range tasks {
-		seen[existing.ID] = true
-	}
-	if t.Parent != nil {
-		if *t.Parent == t.ID || !seen[*t.Parent] {
-			return fmt.Errorf("invalid parent: dependency task not found: #%d", *t.Parent)
-		}
-	}
-	for _, id := range t.DependsOn {
-		if id == t.ID || !seen[id] {
-			return fmt.Errorf("dependency task not found: #%d", id)
-		}
-	}
-	return nil
-}
-
-func enforceSnapshotWIPLimit(cfg *config.Config, tasks []*task.Task, t *task.Task, currentStatus, targetStatus string) error {
-	classConf := cfg.ClassByName(t.Class)
-	if classConf != nil && classConf.WIPLimit > 0 {
-		count := countByClass(tasks, t.Class, t.ID)
-		if count >= classConf.WIPLimit {
-			return task.ValidateClassWIPExceeded(t.Class, classConf.WIPLimit, count)
-		}
-	}
-	if classConf != nil && classConf.BypassColumnWIP {
-		return nil
-	}
-	return checkWIPLimit(cfg, board.CountByStatus(tasks), targetStatus, currentStatus)
 }
 
 func outputCreateResult(t *task.Task, path string) error {

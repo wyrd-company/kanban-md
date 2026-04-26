@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/antopolskiy/kanban-md/internal/clierr"
 	"github.com/antopolskiy/kanban-md/internal/config"
 	"github.com/antopolskiy/kanban-md/internal/output"
+	"github.com/antopolskiy/kanban-md/internal/store"
 	"github.com/antopolskiy/kanban-md/internal/task"
 )
 
@@ -86,7 +88,13 @@ func executeHandoff(cfg *config.Config, id int, cmd *cobra.Command) (*task.Task,
 	if claimant == "" {
 		return nil, clierr.New(clierr.InvalidInput, "claim name is required (use --claim NAME)")
 	}
+	if cfg.UsesRefStorage() {
+		return executeHandoffRef(cfg, id, cmd, claimant, release, blockReason, note, addTimestamp)
+	}
+	return executeHandoffFile(cfg, id, cmd, claimant, release, blockReason, note, addTimestamp)
+}
 
+func executeHandoffFile(cfg *config.Config, id int, cmd *cobra.Command, claimant string, release bool, blockReason, note string, addTimestamp bool) (*task.Task, error) {
 	path, err := task.FindByID(cfg.TasksPath(), id)
 	if err != nil {
 		return nil, err
@@ -157,6 +165,67 @@ func executeHandoff(cfg *config.Config, id int, cmd *cobra.Command) (*task.Task,
 	// Log activity.
 	logHandoffActivity(cfg, t, oldStatus)
 	return t, nil
+}
+
+func executeHandoffRef(cfg *config.Config, id int, cmd *cobra.Command, claimant string, release bool, blockReason, note string, addTimestamp bool) (*task.Task, error) {
+	st, err := newStore(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	var handedOff *task.Task
+	oldStatus := ""
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		t, findErr := findTaskInSnapshot(snap.Tasks, id)
+		if findErr != nil {
+			return findErr
+		}
+		if claimErr := checkClaim(t, claimant, cfg.ClaimTimeoutDuration()); claimErr != nil {
+			return claimErr
+		}
+		const reviewStatus = "review"
+		if statusErr := task.ValidateStatus(reviewStatus, cfg.StatusNames()); statusErr != nil {
+			return clierr.New(clierr.InvalidInput,
+				"board has no 'review' status; add one to use handoff")
+		}
+		oldStatus = t.Status
+		if t.Status != reviewStatus {
+			if cfg.StatusRequiresClaim(reviewStatus) && claimant == "" {
+				return task.ValidateClaimRequired(reviewStatus)
+			}
+			if wipErr := enforceSnapshotWIPLimit(cfg, snap.Tasks, t, t.Status, reviewStatus); wipErr != nil {
+				return wipErr
+			}
+			t.Status = reviewStatus
+			task.UpdateTimestamps(t, oldStatus, reviewStatus, cfg)
+		}
+
+		now := time.Now()
+		t.ClaimedBy = claimant
+		t.ClaimedAt = &now
+		if cmd.Flags().Changed("block") {
+			if blockReason == "" {
+				return clierr.New(clierr.InvalidInput, "block reason is required (use --block REASON)")
+			}
+			t.Blocked = true
+			t.BlockReason = blockReason
+		}
+		if note != "" {
+			t.Body = appendBody(t.Body, note, addTimestamp)
+		}
+		if release {
+			t.ClaimedBy = ""
+			t.ClaimedAt = nil
+		}
+		t.Updated = time.Now()
+		handedOff = t
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	logHandoffActivity(cfg, handedOff, oldStatus)
+	return handedOff, nil
 }
 
 func logHandoffActivity(cfg *config.Config, t *task.Task, oldStatus string) {

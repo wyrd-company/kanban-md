@@ -246,13 +246,13 @@ func TestREADMEDocumentsAllCommands(t *testing.T) {
 	}
 
 	// Config example must show current schema version.
-	if !strings.Contains(readme, "version: 3") {
-		t.Error("README config example still shows old version (should be version: 3)")
+	if !strings.Contains(readme, "version: 11") {
+		t.Error("README config example still shows old version (should be version: 11)")
 	}
 
-	// Config example must mention wip_limits.
-	if !strings.Contains(readme, "wip_limits") {
-		t.Error("README config example missing wip_limits field")
+	// Config example must show ref storage.
+	if !strings.Contains(readme, "storage:") || !strings.Contains(readme, "refs/kanban/board") {
+		t.Error("README config example missing ref storage")
 	}
 }
 

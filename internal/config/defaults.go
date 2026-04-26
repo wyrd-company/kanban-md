@@ -10,6 +10,10 @@ const (
 	DefaultStorageRef = "refs/kanban/board"
 	// DefaultNotificationMode controls notification setup for new boards.
 	DefaultNotificationMode = "auto"
+	// NotificationModeHook uses Git hook-triggered refresh notifications.
+	NotificationModeHook = "hook"
+	// NotificationModePoll uses polling refresh notifications.
+	NotificationModePoll = "poll"
 	// DefaultStatus is the default status for new tasks.
 	DefaultStatus = "backlog"
 	// DefaultPriority is the default priority for new tasks.

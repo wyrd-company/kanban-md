@@ -1,13 +1,17 @@
 package e2e_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/antopolskiy/kanban-md/internal/config"
+	"github.com/antopolskiy/kanban-md/internal/store"
+	ktask "github.com/antopolskiy/kanban-md/internal/task"
 )
 
 // ---------------------------------------------------------------------------
@@ -30,9 +34,36 @@ func writeTaskFile(t *testing.T, kanbanDir string, id int, content string) {
 		}
 	}
 	filename := fmt.Sprintf("%03d-%s.md", id, slug)
-	taskPath := filepath.Join(kanbanDir, "tasks", filename)
-	if err := os.WriteFile(taskPath, []byte(content), 0o600); err != nil {
-		t.Fatalf("writing task file %d: %v", id, err)
+	tk, err := ktask.Parse([]byte(content))
+	if err != nil {
+		t.Fatalf("parsing task %d: %v", id, err)
+	}
+	tk.File = "tasks/" + filename
+	cfg, err := config.Load(kanbanDir)
+	if err != nil {
+		t.Fatalf("loading config: %v", err)
+	}
+	st, err := store.NewGitStore(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("opening store: %v", err)
+	}
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		for i, existing := range snap.Tasks {
+			if existing.ID == id {
+				snap.Tasks[i] = tk
+				if snap.NextID <= id {
+					snap.NextID = id + 1
+				}
+				return nil
+			}
+		}
+		snap.Tasks = append(snap.Tasks, tk)
+		if snap.NextID <= id {
+			snap.NextID = id + 1
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("writing task %d to ref snapshot: %v", id, err)
 	}
 }
 
@@ -69,21 +100,43 @@ func setConfigClaimTimeout(t *testing.T, kanbanDir, timeout string) {
 // bumpNextID updates next_id in config.yml so the CLI knows the next available ID.
 func bumpNextID(t *testing.T, kanbanDir string, nextID int) {
 	t.Helper()
-	cfgPath := filepath.Join(kanbanDir, "config.yml")
-	data, err := os.ReadFile(cfgPath) //nolint:gosec // e2e test file
+	cfg, err := config.Load(kanbanDir)
 	if err != nil {
-		t.Fatalf("reading config: %v", err)
+		t.Fatalf("loading config: %v", err)
 	}
-	content := string(data)
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		if strings.HasPrefix(line, "next_id:") {
-			lines[i] = "next_id: " + strconv.Itoa(nextID)
+	st, err := store.NewGitStore(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("opening store: %v", err)
+	}
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		snap.NextID = nextID
+		return nil
+	}); err != nil {
+		t.Fatalf("bumping next_id in ref snapshot: %v", err)
+	}
+}
+
+func removeTaskFromRef(t *testing.T, kanbanDir string, id int) {
+	t.Helper()
+	cfg, err := config.Load(kanbanDir)
+	if err != nil {
+		t.Fatalf("loading config: %v", err)
+	}
+	st, err := store.NewGitStore(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("opening store: %v", err)
+	}
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		filtered := snap.Tasks[:0]
+		for _, tk := range snap.Tasks {
+			if tk.ID != id {
+				filtered = append(filtered, tk)
+			}
 		}
-	}
-	content = strings.Join(lines, "\n")
-	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil { //nolint:gosec // e2e test file
-		t.Fatalf("writing config: %v", err)
+		snap.Tasks = filtered
+		return nil
+	}); err != nil {
+		t.Fatalf("removing task %d from ref snapshot: %v", id, err)
 	}
 }
 
@@ -430,18 +483,11 @@ claimed_at: 2020-01-01T00:00:00Z
 		t.Fatalf("show failed (exit %d): %s", r.exitCode, r.stderr)
 	}
 
-	// Verify the expired claim is replaced by the new claim.
-	taskPath := filepath.Join(kanbanDir, "tasks", "001-expired-claim-cleared.md")
-	data, err := os.ReadFile(taskPath) //nolint:gosec // e2e test file
-	if err != nil {
-		t.Fatalf("reading task file: %v", err)
+	if tk.ClaimedBy == "agent-old" {
+		t.Error("task should not retain old claim agent after expired claim is cleared")
 	}
-	content := string(data)
-	if strings.Contains(content, "agent-old") {
-		t.Error("task file should not contain old claim agent after expired claim is cleared")
-	}
-	if !strings.Contains(content, claimTestAgent) {
-		t.Error("task file should contain new claim agent after move with --claim")
+	if tk.ClaimedBy != claimTestAgent {
+		t.Errorf("claimed_by = %q, want %q", tk.ClaimedBy, claimTestAgent)
 	}
 }
 
@@ -647,18 +693,13 @@ func TestRequireClaimNotSilentlyClearedOnMove(t *testing.T) {
 	runKanban(t, kanbanDir, "--json", "move", "1", "in-progress", "--claim", claimAgent1)
 	runKanban(t, kanbanDir, "--json", "move", "1", "review", "--claim", claimAgent1)
 
-	// Read the raw task file and verify claimed_by is present.
-	taskPath := filepath.Join(kanbanDir, "tasks", "001-preserved-claim-task.md")
-	data, err := os.ReadFile(taskPath) //nolint:gosec // e2e test file
-	if err != nil {
-		t.Fatalf("reading task file: %v", err)
+	var shown taskJSON
+	r := runKanbanJSON(t, kanbanDir, &shown, "show", "1")
+	if r.exitCode != 0 {
+		t.Fatalf("show failed: %s", r.stderr)
 	}
-	content := string(data)
-	if !strings.Contains(content, "claimed_by: agent-1") {
-		t.Error("claimed_by should be present in task file after move")
-	}
-	if !strings.Contains(content, "claimed_at:") {
-		t.Error("claimed_at should be present in task file after move")
+	if shown.ClaimedBy != claimAgent1 {
+		t.Errorf("claimed_by = %q, want %q", shown.ClaimedBy, claimAgent1)
 	}
 }
 
@@ -789,6 +830,7 @@ func TestRequireClaimBatchMoveWithClaimSucceeds(t *testing.T) {
 func TestRequireClaimCustomStatusesNoRequire(t *testing.T) {
 	// Board with custom statuses — none have require_claim.
 	dir := t.TempDir()
+	initGitRepo(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 	runKanban(t, kanbanDir, "init", "--statuses", "open,active,closed")
 	mustCreateTask(t, kanbanDir, "Custom task")

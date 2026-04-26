@@ -12,6 +12,7 @@ import (
 
 	"github.com/antopolskiy/kanban-md/internal/clierr"
 	"github.com/antopolskiy/kanban-md/internal/config"
+	"github.com/antopolskiy/kanban-md/internal/gitref"
 	"github.com/antopolskiy/kanban-md/internal/output"
 	"github.com/antopolskiy/kanban-md/internal/store"
 )
@@ -76,6 +77,15 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("writing config: %w", saveErr)
 	}
 
+	notificationMode, hookWarning, err := configureNotifications(context.Background(), cfg)
+	if err != nil {
+		return err
+	}
+	cfg.Storage.Notifications.Mode = notificationMode
+	if saveErr := cfg.Save(); saveErr != nil {
+		return fmt.Errorf("writing config: %w", saveErr)
+	}
+
 	st, err := store.NewGitStore(context.Background(), cfg)
 	if err != nil {
 		return err
@@ -85,21 +95,30 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Output result.
+	return outputInitResult(cfg, absDir, name, hookWarning)
+}
+
+func outputInitResult(cfg *config.Config, absDir, name, hookWarning string) error {
+	if hookWarning != "" {
+		output.Messagef(os.Stderr, "Warning: %s", hookWarning)
+	}
 	format := outputFormat()
 	if format == output.FormatJSON {
 		return output.JSON(os.Stdout, map[string]string{
-			"status":  "initialized",
-			"dir":     absDir,
-			"name":    name,
-			"config":  cfg.ConfigPath(),
-			"storage": cfg.Storage.Ref,
-			"columns": strings.Join(cfg.StatusNames(), ","),
+			"status":        "initialized",
+			"dir":           absDir,
+			"name":          name,
+			"config":        cfg.ConfigPath(),
+			"storage":       cfg.Storage.Ref,
+			"notifications": cfg.Storage.Notifications.Mode,
+			"columns":       strings.Join(cfg.StatusNames(), ","),
 		})
 	}
 
 	output.Messagef(os.Stdout, "Initialized board %q in %s", name, absDir)
 	output.Messagef(os.Stdout, "  Config:  %s", cfg.ConfigPath())
 	output.Messagef(os.Stdout, "  Storage: %s", cfg.Storage.Ref)
+	output.Messagef(os.Stdout, "  Notifications: %s", cfg.Storage.Notifications.Mode)
 	output.Messagef(os.Stdout, "  Columns: %s", strings.Join(cfg.StatusNames(), ", "))
 	output.Messagef(os.Stdout, "  Hint:    Install agent skills with: kanban-md skill install")
 
@@ -108,6 +127,24 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	}
 
 	return nil
+}
+
+func configureNotifications(ctx context.Context, cfg *config.Config) (string, string, error) {
+	if cfg.Storage.Notifications.Mode == config.NotificationModePoll {
+		return config.NotificationModePoll, "", nil
+	}
+	repo, err := gitref.Open(ctx, cfg.Dir())
+	if err != nil {
+		return "", "", err
+	}
+	installed, path, err := repo.InstallReferenceTransactionHook(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	if installed {
+		return config.NotificationModeHook, "", nil
+	}
+	return config.NotificationModePoll, "existing reference-transaction hook left unchanged at " + path + "; using polling notifications", nil
 }
 
 func applyInitFlags(cmd *cobra.Command, cfg *config.Config) error {

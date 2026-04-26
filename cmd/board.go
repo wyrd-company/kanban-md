@@ -66,13 +66,9 @@ func runBoard(cmd *cobra.Command, _ []string) error {
 }
 
 func renderBoard(cfg *config.Config, groupBy string) error {
-	tasks, warnings, err := task.ReadAllLenient(cfg.TasksPath())
+	tasks, err := loadAllTasks(cfg)
 	if err != nil {
 		return err
-	}
-	printWarnings(warnings)
-	if tasks == nil {
-		tasks = []*task.Task{}
 	}
 
 	// Exclude archived tasks from board display.

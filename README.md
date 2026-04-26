@@ -66,7 +66,7 @@ Project management tools are designed for humans clicking buttons. kanban-md is 
 - **Workspace clean by default.** New boards keep task state out of normal files while remaining available to every worktree in the repository.
 - **Zero dependencies at runtime.** A single static binary. No database, no server, no config service.
 - **Skills included.** Pre-written skills for using the CLI tool and a multi-agent development workflow. Installable via `kanban-md skill install`.
-- **TUI for observation.** A full interactive terminal board with keyboard navigation. It auto-refreshes when task files change on disk.
+- **TUI for observation.** A full interactive terminal board with keyboard navigation. It auto-refreshes from hook notifications when available, with polling as the safe fallback.
 
 ```bash
 kanban-md tui
@@ -165,7 +165,7 @@ board:
 storage:
   ref: refs/kanban/board
   notifications:
-    mode: auto
+    mode: hook
 statuses:
   - backlog
   - todo
@@ -219,6 +219,8 @@ After creating a board, kanban-md prompts to add the board directory (for exampl
 - If `.gitignore` does not exist, it is created with the board directory entry.
 
 `init` also creates the configured Git ref if it does not exist. New boards do not create `kanban/tasks/`; task state is stored in the ref snapshot.
+
+For live refresh, `init` installs a tiny Git `reference-transaction` hook when no hook already exists. The hook invokes `kanban-md hook reference-transaction` after board ref updates and rewrites `kanban/.notify`; the TUI watches that file. If a hook already exists, kanban-md leaves it untouched, records `storage.notifications.mode: poll`, and commands continue to work with polling-based refresh.
 
 ### `storage status`
 
@@ -514,7 +516,7 @@ When using `--write-to`, the context block is wrapped in HTML comment markers (`
 
 ## Interactive TUI
 
-`kanban-md tui` opens a full interactive terminal board with keyboard navigation. It auto-refreshes when task files change on disk.
+`kanban-md tui` opens a full interactive terminal board with keyboard navigation. It reads and mutates the Git ref snapshot, and refreshes from `kanban/.notify` when hook notifications are available.
 If no board exists in the current directory, `kanban-md tui` can initialize one and then offers to add that board directory to `.gitignore`.
 
 ```bash
@@ -712,11 +714,11 @@ kanban-md list --group-by priority      # priority distribution
 
 **Agent-first, human-friendly.** Every feature is designed to work in non-interactive, piped, multi-agent contexts first. Humans get a TUI and table output; agents get `--compact` (70% fewer tokens than JSON) and atomic operations like `pick --claim`.
 
-**Files are the API.** The CLI is a convenience layer over a simple file format. You can always fall back to editing files directly — the tool will pick up changes.
+**Git refs are the API.** The CLI is a convenience layer over a ref-backed Markdown snapshot. Tasks stay readable as Markdown inside Git, but they do not appear as normal workspace files.
 
-**No hidden state.** Everything is in `config.yml` and the task files. There's no database, no cache, no lock file. Two agents can work on the same board by editing different files and merging via git.
+**Hidden from the workspace, visible to Git.** Board state lives in `refs/kanban/board`; `config.yml` only describes the board and storage. Multiple worktrees see the same board ref.
 
-**Minimal by default.** The core CLI does one thing — manage task files — and stays out of the way. The interactive TUI is built in (`kanban-md tui`). The tool doesn't sync, notify, or integrate with external services. Git handles collaboration; file watchers handle live updates.
+**Minimal by default.** The core CLI does one thing: manage board snapshots. The interactive TUI is built in (`kanban-md tui`), hook notifications keep it fresh when possible, and polling is the fallback when an existing hook is already in place.
 
 ## Development
 

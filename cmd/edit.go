@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/antopolskiy/kanban-md/internal/config"
 	"github.com/antopolskiy/kanban-md/internal/date"
 	"github.com/antopolskiy/kanban-md/internal/output"
+	"github.com/antopolskiy/kanban-md/internal/store"
 	"github.com/antopolskiy/kanban-md/internal/task"
 )
 
@@ -96,6 +98,10 @@ func editSingleTask(cfg *config.Config, id int, cmd *cobra.Command) error {
 // executeEdit performs the core edit: find, read, apply, validate, write, log.
 // Returns the modified task and its new file path.
 func executeEdit(cfg *config.Config, id int, cmd *cobra.Command) (*task.Task, string, error) {
+	if cfg.UsesRefStorage() {
+		return executeEditRef(cfg, id, cmd)
+	}
+
 	path, err := task.FindByID(cfg.TasksPath(), id)
 	if err != nil {
 		return nil, "", err
@@ -137,6 +143,55 @@ func executeEdit(cfg *config.Config, id int, cmd *cobra.Command) (*task.Task, st
 
 	logEditActivity(cfg, t, wasBlocked, wasClaimedBy)
 	return t, newPath, nil
+}
+
+func executeEditRef(cfg *config.Config, id int, cmd *cobra.Command) (*task.Task, string, error) {
+	st, err := newStore(cfg)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var edited *task.Task
+	newPath := ""
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		t, findErr := findTaskInSnapshot(snap.Tasks, id)
+		if findErr != nil {
+			return findErr
+		}
+
+		claimant, release, claimErr := validateEditClaim(cfg, t, cmd)
+		if claimErr != nil {
+			return claimErr
+		}
+
+		oldTitle := t.Title
+		oldStatus := t.Status
+		wasBlocked := t.Blocked
+		wasClaimedBy := t.ClaimedBy
+		changed, changeErr := applyEditChanges(cmd, t, cfg, claimant, release)
+		if changeErr != nil {
+			return changeErr
+		}
+		if !changed {
+			return clierr.New(clierr.NoChanges, "no changes specified")
+		}
+		if validateErr := validateEditPostSnapshot(cfg, snap.Tasks, t, oldStatus, claimant); validateErr != nil {
+			return validateErr
+		}
+
+		if t.Title != oldTitle {
+			t.File = "tasks/" + task.GenerateFilename(t.ID, task.GenerateSlug(t.Title))
+		}
+		t.Updated = time.Now()
+		newPath = t.File
+		edited = t
+		logEditActivity(cfg, t, wasBlocked, wasClaimedBy)
+		return nil
+	}); err != nil {
+		return nil, "", err
+	}
+
+	return edited, newPath, nil
 }
 
 // validateEditClaim checks claim ownership and require_claim before allowing edits.
@@ -186,6 +241,19 @@ func validateEditPost(cfg *config.Config, t *task.Task, oldStatus, claimant stri
 			return enforceWIPLimitForClass(cfg, t, oldStatus, t.Status)
 		}
 		return enforceWIPLimit(cfg, oldStatus, t.Status)
+	}
+	return nil
+}
+
+func validateEditPostSnapshot(cfg *config.Config, tasks []*task.Task, t *task.Task, oldStatus, claimant string) error {
+	if err := validateDepsInSnapshot(tasks, t); err != nil {
+		return err
+	}
+	if t.Status != oldStatus && cfg.StatusRequiresClaim(t.Status) && claimant == "" {
+		return task.ValidateClaimRequired(t.Status)
+	}
+	if t.Status != oldStatus {
+		return enforceSnapshotWIPLimit(cfg, tasks, t, oldStatus, t.Status)
 	}
 	return nil
 }

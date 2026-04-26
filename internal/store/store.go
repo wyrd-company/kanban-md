@@ -95,8 +95,8 @@ func (s *GitStore) Load(ctx context.Context) (*Snapshot, error) {
 	sort.SliceStable(snap.Tasks, func(i, j int) bool {
 		return snap.Tasks[i].ID < snap.Tasks[j].ID
 	})
-	if snap.NextID < 1 {
-		snap.NextID = nextIDFromTasks(snap.Tasks)
+	if minNext := nextIDFromTasks(snap.Tasks); snap.NextID < minNext {
+		snap.NextID = minNext
 	}
 	return snap, nil
 }

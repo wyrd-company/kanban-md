@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/antopolskiy/kanban-md/internal/config"
 	"github.com/antopolskiy/kanban-md/internal/output"
+	"github.com/antopolskiy/kanban-md/internal/store"
 	"github.com/antopolskiy/kanban-md/internal/task"
 )
 
@@ -74,6 +76,10 @@ func executeArchive(cfg *config.Config, id int) error {
 }
 
 func executeArchiveCore(cfg *config.Config, id int) (*task.Task, string, error) {
+	if cfg.UsesRefStorage() {
+		return executeArchiveCoreRef(cfg, id)
+	}
+
 	path, err := task.FindByID(cfg.TasksPath(), id)
 	if err != nil {
 		return nil, "", err
@@ -102,4 +108,39 @@ func executeArchiveCore(cfg *config.Config, id int) (*task.Task, string, error) 
 
 	logActivity(cfg, "move", id, oldStatus+" -> "+targetStatus)
 	return t, oldStatus, nil
+}
+
+func executeArchiveCoreRef(cfg *config.Config, id int) (*task.Task, string, error) {
+	st, err := newStore(cfg)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var archived *task.Task
+	oldStatus := ""
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		t, findErr := findTaskInSnapshot(snap.Tasks, id)
+		if findErr != nil {
+			return findErr
+		}
+		targetStatus := config.ArchivedStatus
+		if t.Status == targetStatus {
+			archived = t
+			return nil
+		}
+
+		oldStatus = t.Status
+		t.Status = targetStatus
+		task.UpdateTimestamps(t, oldStatus, targetStatus, cfg)
+		t.Updated = time.Now()
+		archived = t
+		return nil
+	}); err != nil {
+		return nil, "", err
+	}
+
+	if oldStatus != "" {
+		logActivity(cfg, "move", id, oldStatus+" -> "+config.ArchivedStatus)
+	}
+	return archived, oldStatus, nil
 }

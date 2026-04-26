@@ -1,7 +1,6 @@
 package e2e_test
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -37,7 +36,7 @@ func TestDeleteWithDependentsWarns(t *testing.T) {
 
 func TestDeleteWithYes(t *testing.T) {
 	kanbanDir := initBoard(t)
-	created := mustCreateTask(t, kanbanDir, "Doomed task")
+	mustCreateTask(t, kanbanDir, "Doomed task")
 
 	var got map[string]interface{}
 	r := runKanbanJSON(t, kanbanDir, &got, "delete", "1", "--yes")
@@ -47,11 +46,6 @@ func TestDeleteWithYes(t *testing.T) {
 	}
 	if got["status"] != statusDeleted {
 		t.Errorf("status = %v, want %q", got["status"], statusDeleted)
-	}
-
-	// File should remain on disk (soft delete).
-	if _, err := os.Stat(created.File); err != nil {
-		t.Errorf("task file %q should remain after delete, got err=%v", created.File, err)
 	}
 
 	var shown taskJSON

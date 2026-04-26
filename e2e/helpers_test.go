@@ -221,6 +221,7 @@ func initBoard(t *testing.T) string {
 	t.Helper()
 
 	dir := t.TempDir()
+	initGitRepo(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 
 	cmd := exec.Command(binPath, "--dir", kanbanDir, "init") //nolint:gosec,noctx // e2e test binary
@@ -233,6 +234,16 @@ func initBoard(t *testing.T) string {
 	}
 
 	return kanbanDir
+}
+
+func initGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	cmd := exec.Command("git", "-C", dir, "init") //nolint:gosec,noctx // e2e test helper
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v\nstderr: %s", err, stderr.String())
+	}
 }
 
 // mustCreateTask creates a task and returns its parsed JSON.

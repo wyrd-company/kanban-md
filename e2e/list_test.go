@@ -1,7 +1,6 @@
 package e2e_test
 
 import (
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -182,10 +181,7 @@ func TestListUnblockedWithMissingDependencyFile(t *testing.T) {
 	dep := mustCreateTask(t, kanbanDir, "Dep task")
 	mustCreateTask(t, kanbanDir, "Depends on missing", "--depends-on", "1")
 
-	// Simulate legacy hard-delete: dependency ID remains but file is gone.
-	if err := os.Remove(dep.File); err != nil {
-		t.Fatalf("removing dep task file: %v", err)
-	}
+	removeTaskFromRef(t, kanbanDir, dep.ID)
 
 	var tasks []taskJSON
 	r := runKanbanJSON(t, kanbanDir, &tasks, "list", "--unblocked")

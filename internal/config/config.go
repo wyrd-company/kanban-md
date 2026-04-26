@@ -273,7 +273,7 @@ func (c *Config) validateStorage() error {
 		return fmt.Errorf("%w: storage.notifications.mode is required", ErrInvalid)
 	}
 	switch mode {
-	case "auto", "hook", "poll":
+	case DefaultNotificationMode, NotificationModeHook, NotificationModePoll:
 		return nil
 	default:
 		return fmt.Errorf("%w: storage.notifications.mode must be one of auto, hook, poll", ErrInvalid)

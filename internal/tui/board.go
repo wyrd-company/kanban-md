@@ -2,6 +2,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"github.com/antopolskiy/kanban-md/internal/board"
 	"github.com/antopolskiy/kanban-md/internal/config"
 	"github.com/antopolskiy/kanban-md/internal/filelock"
+	"github.com/antopolskiy/kanban-md/internal/store"
 	"github.com/antopolskiy/kanban-md/internal/task"
 )
 
@@ -516,6 +518,10 @@ func (b *Board) executeCreate() (tea.Model, tea.Cmd) {
 
 	priority := b.selectedCreatePriority()
 	tags := parseTagsCSV(b.createTagsInput.Value())
+	if b.cfg.UsesRefStorage() {
+		b.executeCreateRef(title, body, priority, tags)
+		return b, nil
+	}
 
 	// Acquire exclusive lock to prevent concurrent creates from
 	// reading the same next_id and generating duplicate task IDs.
@@ -578,12 +584,58 @@ func (b *Board) executeCreate() (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+func (b *Board) executeCreateRef(title, body, priority string, tags []string) {
+	st, err := store.NewGitStore(context.Background(), b.cfg)
+	if err != nil {
+		b.err = fmt.Errorf("opening ref store: %w", err)
+		b.resetCreateState()
+		b.view = viewBoard
+		return
+	}
+
+	var created *task.Task
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		now := b.now()
+		id := snap.NextID
+		t := &task.Task{
+			ID:       id,
+			Title:    title,
+			Status:   b.createStatus,
+			Priority: priority,
+			Class:    b.cfg.Defaults.Class,
+			Tags:     tags,
+			Body:     body,
+			Created:  now,
+			Updated:  now,
+			File:     "tasks/" + task.GenerateFilename(id, task.GenerateSlug(title)),
+		}
+		snap.Tasks = append(snap.Tasks, t)
+		snap.NextID = id + 1
+		created = t
+		return nil
+	}); err != nil {
+		b.err = fmt.Errorf("creating task: %w", err)
+		b.resetCreateState()
+		b.view = viewBoard
+		return
+	}
+
+	board.LogMutation(b.cfg.Dir(), "create", created.ID, created.Title)
+	b.resetCreateState()
+	b.view = viewBoard
+	b.loadTasks()
+	b.selectTaskByID(created.ID)
+}
+
 func (b *Board) executeEdit() (tea.Model, tea.Cmd) {
 	title := strings.TrimSpace(b.createTitleInput.Value())
 	if title == "" {
 		b.resetCreateState()
 		b.view = viewBoard
 		return b, nil
+	}
+	if b.cfg.UsesRefStorage() {
+		return b.executeEditRef(title)
 	}
 
 	path, err := task.FindByID(b.cfg.TasksPath(), b.createEditID)
@@ -616,6 +668,46 @@ func (b *Board) executeEdit() (tea.Model, tea.Cmd) {
 	}
 
 	taskID := b.createEditID
+	b.resetCreateState()
+	b.view = viewBoard
+	b.loadTasks()
+	b.selectTaskByID(taskID)
+	return b, nil
+}
+
+func (b *Board) executeEditRef(title string) (tea.Model, tea.Cmd) {
+	st, err := store.NewGitStore(context.Background(), b.cfg)
+	if err != nil {
+		b.err = fmt.Errorf("opening ref store: %w", err)
+		b.resetCreateState()
+		b.view = viewBoard
+		return b, nil
+	}
+
+	taskID := b.createEditID
+	var edited *task.Task
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		tk, findErr := findSnapshotTask(snap.Tasks, taskID)
+		if findErr != nil {
+			return findErr
+		}
+		oldTitle := tk.Title
+		tk.Title = title
+		tk.Body = strings.TrimSpace(b.createBodyInput.Value())
+		tk.Priority = b.selectedCreatePriority()
+		tk.Tags = parseTagsCSV(b.createTagsInput.Value())
+		tk.Updated = b.now()
+		if tk.Title != oldTitle {
+			tk.File = "tasks/" + task.GenerateFilename(tk.ID, task.GenerateSlug(tk.Title))
+		}
+		edited = tk
+		return nil
+	}); err != nil {
+		b.err = fmt.Errorf("editing task #%d: %w", taskID, err)
+	} else {
+		board.LogMutation(b.cfg.Dir(), "edit", edited.ID, edited.Title)
+	}
+
 	b.resetCreateState()
 	b.view = viewBoard
 	b.loadTasks()
@@ -741,7 +833,7 @@ func (b *Board) handleDebugKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // loadTasks reads all tasks and organizes them into columns.
 func (b *Board) loadTasks() {
-	tasks, _, err := task.ReadAllLenient(b.cfg.TasksPath())
+	tasks, err := b.loadAllTasks()
 	if err != nil {
 		b.err = err
 		return
@@ -797,6 +889,31 @@ func (b *Board) loadTasks() {
 	}
 
 	b.clampRow()
+}
+
+func (b *Board) loadAllTasks() ([]*task.Task, error) {
+	if b.cfg.UsesRefStorage() {
+		st, err := store.NewGitStore(context.Background(), b.cfg)
+		if err != nil {
+			return nil, err
+		}
+		snap, err := st.Load(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		return snap.Tasks, nil
+	}
+	tasks, _, err := task.ReadAllLenient(b.cfg.TasksPath())
+	return tasks, err
+}
+
+func findSnapshotTask(tasks []*task.Task, id int) (*task.Task, error) {
+	for _, t := range tasks {
+		if t.ID == id {
+			return t, nil
+		}
+	}
+	return nil, fmt.Errorf("task not found: #%d", id)
 }
 
 // refreshDetailTask updates the detail view task pointer after a reload.
@@ -1028,6 +1145,10 @@ func (b *Board) lowerPriority() (tea.Model, tea.Cmd) {
 }
 
 func (b *Board) executePriorityChange(t *task.Task, newPriority string) (tea.Model, tea.Cmd) {
+	if b.cfg.UsesRefStorage() {
+		return b.executePriorityChangeRef(t, newPriority)
+	}
+
 	oldPriority := t.Priority
 	taskID := t.ID
 	t.Priority = newPriority
@@ -1043,6 +1164,42 @@ func (b *Board) executePriorityChange(t *task.Task, newPriority string) (tea.Mod
 	b.loadTasks()
 
 	// After re-sort, find the task at its new position and follow it.
+	col := b.currentColumn()
+	if col != nil {
+		for i, ct := range col.tasks {
+			if ct.ID == taskID {
+				b.activeRow = i
+				break
+			}
+		}
+	}
+	b.ensureVisible()
+	return b, nil
+}
+
+func (b *Board) executePriorityChangeRef(t *task.Task, newPriority string) (tea.Model, tea.Cmd) {
+	oldPriority := t.Priority
+	taskID := t.ID
+	st, err := store.NewGitStore(context.Background(), b.cfg)
+	if err != nil {
+		b.err = fmt.Errorf("opening ref store: %w", err)
+		return b, nil
+	}
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		tk, findErr := findSnapshotTask(snap.Tasks, taskID)
+		if findErr != nil {
+			return findErr
+		}
+		tk.Priority = newPriority
+		tk.Updated = b.now()
+		return nil
+	}); err != nil {
+		b.err = fmt.Errorf("updating priority for task #%d: %w", taskID, err)
+		return b, nil
+	}
+
+	board.LogMutation(b.cfg.Dir(), "priority", taskID, oldPriority+" -> "+newPriority)
+	b.loadTasks()
 	col := b.currentColumn()
 	if col != nil {
 		for i, ct := range col.tasks {
@@ -1077,6 +1234,9 @@ func (b *Board) executeMove(targetStatus string) (tea.Model, tea.Cmd) {
 		b.view = viewBoard
 		return b, nil
 	}
+	if b.cfg.UsesRefStorage() {
+		return b.executeMoveRef(t.ID, targetStatus)
+	}
 
 	oldStatus := t.Status
 	t.Status = targetStatus
@@ -1094,7 +1254,40 @@ func (b *Board) executeMove(targetStatus string) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+func (b *Board) executeMoveRef(taskID int, targetStatus string) (tea.Model, tea.Cmd) {
+	st, err := store.NewGitStore(context.Background(), b.cfg)
+	if err != nil {
+		b.err = fmt.Errorf("opening ref store: %w", err)
+		b.view = viewBoard
+		return b, nil
+	}
+	oldStatus := ""
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		t, findErr := findSnapshotTask(snap.Tasks, taskID)
+		if findErr != nil {
+			return findErr
+		}
+		oldStatus = t.Status
+		t.Status = targetStatus
+		task.UpdateTimestamps(t, oldStatus, targetStatus, b.cfg)
+		t.Updated = b.now()
+		return nil
+	}); err != nil {
+		b.err = fmt.Errorf("moving task #%d: %w", taskID, err)
+	} else {
+		board.LogMutation(b.cfg.Dir(), "move", taskID, oldStatus+" -> "+targetStatus)
+	}
+
+	b.view = viewBoard
+	b.loadTasks()
+	return b, nil
+}
+
 func (b *Board) executeDelete() (tea.Model, tea.Cmd) {
+	if b.cfg.UsesRefStorage() {
+		return b.executeDeleteRef()
+	}
+
 	path, err := task.FindByID(b.cfg.TasksPath(), b.deleteID)
 	if err != nil {
 		b.err = fmt.Errorf("finding task #%d: %w", b.deleteID, err)
@@ -1127,8 +1320,41 @@ func (b *Board) executeDelete() (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+func (b *Board) executeDeleteRef() (tea.Model, tea.Cmd) {
+	st, err := store.NewGitStore(context.Background(), b.cfg)
+	if err != nil {
+		b.err = fmt.Errorf("opening ref store: %w", err)
+		b.view = viewBoard
+		return b, nil
+	}
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		t, findErr := findSnapshotTask(snap.Tasks, b.deleteID)
+		if findErr != nil {
+			return findErr
+		}
+		if t.Status != config.ArchivedStatus {
+			oldStatus := t.Status
+			t.Status = config.ArchivedStatus
+			task.UpdateTimestamps(t, oldStatus, t.Status, b.cfg)
+			t.Updated = b.now()
+		}
+		return nil
+	}); err != nil {
+		b.err = fmt.Errorf("archiving task #%d: %w", b.deleteID, err)
+	} else {
+		board.LogMutation(b.cfg.Dir(), "delete", b.deleteID, b.deleteTitle)
+	}
+
+	b.view = viewBoard
+	b.loadTasks()
+	return b, nil
+}
+
 // WatchPaths returns the paths that should be watched for file changes.
 func (b *Board) WatchPaths() []string {
+	if b.cfg.UsesRefStorage() {
+		return []string{b.cfg.Dir()}
+	}
 	paths := []string{b.cfg.TasksPath()}
 	if b.cfg.Dir() != b.cfg.TasksPath() {
 		paths = append(paths, b.cfg.Dir())

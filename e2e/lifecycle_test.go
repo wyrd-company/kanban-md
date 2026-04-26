@@ -134,6 +134,7 @@ func TestFullLifecycle(t *testing.T) {
 
 func TestCustomStatusesWorkflow(t *testing.T) {
 	dir := t.TempDir()
+	initGitRepo(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 
 	var initResult map[string]string
