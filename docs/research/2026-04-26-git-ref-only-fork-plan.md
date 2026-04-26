@@ -38,6 +38,26 @@ The new story should be:
 
 Users can migrate manually or with an agent if they want old tasks imported.
 
+## Distribution direction
+
+This fork should also stop publishing like the upstream project.
+
+Current upstream-oriented release config still targets:
+
+- Homebrew tap owner: `antopolskiy`
+- Homebrew tap repo: `homebrew-tap`
+
+This fork should instead publish to:
+
+- Homebrew tap owner: `wyrd-company`
+- Homebrew tap repo: `homebrew-tools`
+
+Publishing should use the already-available organization secret:
+
+- `FORMULAE_PUBLISH_KEY`
+
+The release plan should assume SSH-based formula publishing, not a personal access token flow.
+
 ## Breaking changes to embrace
 
 These are intentional and should be treated as part of the fork identity.
@@ -478,6 +498,24 @@ Deliverable:
 
 - read-only commands can run from a ref snapshot
 
+## Phase 1.5: release fork-over
+
+Goal:
+
+- make releases publish as this fork rather than the upstream project
+
+Work:
+
+- update `.goreleaser.yml` Homebrew repository target from `antopolskiy/homebrew-tap` to `wyrd-company/homebrew-tools`
+- switch formula publishing configuration from token-based auth to SSH-based auth suitable for the deploy key stored in `FORMULAE_PUBLISH_KEY`
+- update project URLs, homepage metadata, and any upstream module/repo references that appear in release artifacts
+- update release workflow configuration so the deploy key is loaded for formula publishing
+- verify the formula repository path and binary metadata still produce the desired formula name
+
+Deliverable:
+
+- tagged releases publish binaries from this fork and update the `wyrd-company/homebrew-tools` tap automatically
+
 ## Phase 2: write path
 
 Goal:
@@ -546,11 +584,54 @@ Work:
 - remove docs about plain workspace task files
 - document hook behavior and fallback mode
 - document manual migration expectations
+- document release ownership and Homebrew installation from `wyrd-company/homebrew-tools`
 - add a `doctor` or `status` command section that explains notification mode
 
 Deliverable:
 
 - product/documentation coherence
+
+## Release publishing plan
+
+## GoReleaser target
+
+Update the Homebrew section in `.goreleaser.yml` to point at:
+
+- owner: `wyrd-company`
+- repo: `homebrew-tools`
+
+The current file is still upstream-oriented, so this should be one of the first fork-identity changes even before the storage rewrite is complete.
+
+## Authentication model
+
+Use the organization secret `FORMULAE_PUBLISH_KEY` as the SSH deploy key for formula publishing.
+
+Assumptions:
+
+- the key is authorized to push to `wyrd-company/homebrew-tools`
+- GitHub Actions can load the key into an SSH agent during the release workflow
+- GoReleaser can publish the formula commit through SSH transport once the environment is prepared
+
+The release workflow should not assume `HOMEBREW_TAP_TOKEN` remains the right credential for this fork.
+
+## Release workflow expectations
+
+The fork's release workflow should:
+
+1. build and publish GitHub release artifacts
+2. load `FORMULAE_PUBLISH_KEY`
+3. configure Git/SSH for access to `git@github.com:wyrd-company/homebrew-tools.git`
+4. run GoReleaser with the Homebrew tap pointed at that repository
+5. fail clearly if formula publishing cannot authenticate
+
+## Validation checklist
+
+Before relying on the new release path, verify:
+
+- a tag build updates the formula in `wyrd-company/homebrew-tools`
+- the generated formula references this fork's release artifacts
+- `brew install wyrd-company/tools/kanban-md` or the equivalent tap path works as expected
+- reinstall and upgrade flows still install the `kbmd` symlink and completions
 
 ## Recommended command additions
 
