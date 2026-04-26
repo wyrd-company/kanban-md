@@ -723,6 +723,120 @@ Why this slice:
 - exercises Git lookup and task decoding
 - avoids the harder CAS and hook work at the very start
 
+## Remaining hard-break implementation
+
+The first coding slice is intentionally not the full clean break. If an implementation keeps old file-backed boards readable while the ref store is being introduced, that should be treated as temporary scaffolding, not product direction.
+
+The clean-break target remains:
+
+- no meaningful runtime `tasks_dir`
+- no config-owned `next_id`
+- no `kanban/tasks/*.md` task files in the workspace
+- no dual backend exposed to users
+- old file-backed boards fail clearly or require manual import outside the core command flow
+
+To finish the hard break, implement the following work.
+
+### 1. Make config ref-only
+
+- Remove `tasks_dir` from the active runtime model.
+- Remove `next_id` from config and keep it only in ref-owned `meta.json`.
+- Make `storage.ref` required for all supported boards.
+- Reject old file-backed configs with a clear manual-import message instead of silently preserving file storage.
+- Update config fixtures and tests so the current supported shape is ref-only.
+
+### 2. Port mutating commands to snapshot transactions
+
+Every board mutation should use `store.Mutate(...)` so updates are atomic and compare-and-swap protected.
+
+Commands to port:
+
+- `edit`
+- `move`
+- `delete`
+- `archive`
+- `handoff`
+- `pick`
+
+Related behavior to port at the same time:
+
+- dependency validation
+- WIP and class-of-service enforcement
+- claim checks and claim timeout handling
+- lifecycle timestamps
+- activity logging or a ref-native replacement for it
+
+`pick` is especially important: it should become a single snapshot transaction that finds, claims, and optionally moves the task before updating the ref.
+
+### 3. Port remaining read commands
+
+Commands that currently read `kanban/tasks/` must load from the ref snapshot:
+
+- `board`
+- `metrics`
+- `context`
+- `log`
+- any config/status output that still describes the old file layout
+
+Where possible, keep shared filtering, sorting, and rendering logic by making it operate on already-loaded task slices.
+
+### 4. Remove file persistence assumptions
+
+Keep `internal/task` focused on Markdown parsing and serialization. Remove path-oriented APIs from the runtime command path, including:
+
+- `FindByID(tasksDir, id)`
+- `ReadAllLenient(tasksDir)`
+- direct task file writes
+- filename/frontmatter repair as normal startup behavior
+
+Filesystem-oriented helpers can remain only as test/import utilities if they are clearly outside runtime storage.
+
+### 5. Add ref-native consistency checks
+
+Snapshot load should validate:
+
+- unique task IDs
+- valid task frontmatter
+- `meta.json` schema version
+- `meta.next_id` greater than every existing task ID
+- path/frontmatter mismatches only as malformed snapshot errors unless a deliberate repair command is added
+
+The ref model should prevent duplicate IDs and `next_id` drift during normal mutations, so consistency repair should be smaller and stricter than the old filesystem self-healing layer.
+
+### 6. Implement notifications
+
+- Inspect the repository hook environment.
+- Install a tiny `reference-transaction` hook when no hook exists.
+- Do not overwrite an existing hook.
+- Add `kanban-md hook reference-transaction`.
+- Emit `kanban/.notify` when `refs/kanban/board` changes.
+- Fall back to polling when hook installation is unavailable.
+
+### 7. Port the TUI
+
+- Load board state from snapshots.
+- Mutate through the store.
+- Refresh from `kanban/.notify` when hook mode is active.
+- Poll the ref OID when notification mode is `poll`.
+- Remove watcher logic that assumes task files under `kanban/tasks/`.
+
+### 8. Rewrite tests for the new product shape
+
+- Update e2e setup so every initialized board lives inside a Git repository.
+- Replace tests that inspect `kanban/tasks/*.md` with assertions against CLI behavior or ref snapshot contents.
+- Add contention tests for atomic `pick`.
+- Add tests for malformed snapshots.
+- Add hook-installation and polling-fallback tests.
+- Delete tests whose only purpose is preserving file-backed behavior.
+
+### 9. Finish documentation cleanup
+
+- Remove remaining "plain file tasks" language.
+- Document `refs/kanban/board`, `meta.json`, and snapshot layout.
+- Document notification modes.
+- Explain that old file-backed boards are a manual migration/import concern, not a supported runtime backend.
+- Document the release ownership and Homebrew tap path for `wyrd-company/homebrew-tools`.
+
 ## Bottom line
 
 For this fork, a hard-break Git-ref-only design is reasonable and cleaner than trying to preserve dual semantics.
