@@ -29,7 +29,7 @@ func copyDir(t *testing.T, src, dst string) {
 		if readErr != nil {
 			t.Fatalf("reading %s: %v", srcPath, readErr)
 		}
-		if writeErr := os.WriteFile(dstPath, data, fileMode); writeErr != nil {
+		if writeErr := os.WriteFile(dstPath, data, fileMode); writeErr != nil { //nolint:gosec // test fixture path
 			t.Fatalf("writing %s: %v", dstPath, writeErr)
 		}
 	}

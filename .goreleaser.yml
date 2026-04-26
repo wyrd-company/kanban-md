@@ -31,12 +31,14 @@ brews:
   - ids:
       - default
     repository:
-      owner: antopolskiy
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+      owner: wyrd-company
+      name: homebrew-tools
+      git:
+        url: git@github.com:wyrd-company/homebrew-tools.git
+        private_key: "{{ .Env.FORMULAE_PUBLISH_KEY }}"
     name: kanban-md
-    homepage: https://github.com/antopolskiy/kanban-md
-    description: A file-based Kanban tool powered by Markdown
+    homepage: https://github.com/wyrd-company/kanban-md
+    description: A Git-native Kanban tool powered by Markdown snapshots
     license: MIT
     install: |
       bin.install "kanban-md"

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,12 +13,13 @@ import (
 	"github.com/antopolskiy/kanban-md/internal/clierr"
 	"github.com/antopolskiy/kanban-md/internal/config"
 	"github.com/antopolskiy/kanban-md/internal/output"
+	"github.com/antopolskiy/kanban-md/internal/store"
 )
 
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize a new kanban board",
-	Long:  `Creates a kanban directory with config.yml and tasks/ subdirectory.`,
+	Long:  `Creates a kanban directory with config.yml and initializes the board Git ref.`,
 	RunE:  runInit,
 }
 
@@ -40,23 +42,75 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Check if already initialized.
-	if _, err := os.Stat(filepath.Join(absDir, config.ConfigFileName)); err == nil {
+	if _, statErr := os.Stat(filepath.Join(absDir, config.ConfigFileName)); statErr == nil {
 		return clierr.Newf(clierr.BoardAlreadyExists, "board already initialized in %s", absDir).
 			WithDetails(map[string]any{"dir": absDir})
 	}
 
 	name, _ := cmd.Flags().GetString("name")
 	if name == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("getting working directory: %w", err)
+		cwd, getwdErr := os.Getwd()
+		if getwdErr != nil {
+			return fmt.Errorf("getting working directory: %w", getwdErr)
 		}
 		name = filepath.Base(cwd)
 	}
 
 	cfg := config.NewDefault(name)
 	cfg.SetDir(absDir)
+	cfg.TasksDir = ""
+	cfg.NextID = 0
 
+	if applyErr := applyInitFlags(cmd, cfg); applyErr != nil {
+		return applyErr
+	}
+
+	// Create directories.
+	const dirMode = 0o750
+	if mkdirErr := os.MkdirAll(absDir, dirMode); mkdirErr != nil {
+		return fmt.Errorf("creating kanban directory: %w", mkdirErr)
+	}
+
+	// Write config.
+	if saveErr := cfg.Save(); saveErr != nil {
+		return fmt.Errorf("writing config: %w", saveErr)
+	}
+
+	st, err := store.NewGitStore(context.Background(), cfg)
+	if err != nil {
+		return err
+	}
+	if _, err := st.Initialize(context.Background()); err != nil {
+		return fmt.Errorf("initializing board ref: %w", err)
+	}
+
+	// Output result.
+	format := outputFormat()
+	if format == output.FormatJSON {
+		return output.JSON(os.Stdout, map[string]string{
+			"status":  "initialized",
+			"dir":     absDir,
+			"name":    name,
+			"config":  cfg.ConfigPath(),
+			"storage": cfg.Storage.Ref,
+			"columns": strings.Join(cfg.StatusNames(), ","),
+		})
+	}
+
+	output.Messagef(os.Stdout, "Initialized board %q in %s", name, absDir)
+	output.Messagef(os.Stdout, "  Config:  %s", cfg.ConfigPath())
+	output.Messagef(os.Stdout, "  Storage: %s", cfg.Storage.Ref)
+	output.Messagef(os.Stdout, "  Columns: %s", strings.Join(cfg.StatusNames(), ", "))
+	output.Messagef(os.Stdout, "  Hint:    Install agent skills with: kanban-md skill install")
+
+	if err := offerAddKanbanToGitignore(absDir); err != nil {
+		return fmt.Errorf("updating .gitignore: %w", err)
+	}
+
+	return nil
+}
+
+func applyInitFlags(cmd *cobra.Command, cfg *config.Config) error {
 	if statuses, _ := cmd.Flags().GetStringSlice("statuses"); len(statuses) > 0 {
 		sc := make([]config.StatusConfig, len(statuses))
 		for i, s := range statuses {
@@ -74,46 +128,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		cfg.WIPLimits = parsed
 	}
 
-	if err := cfg.Validate(); err != nil {
-		return err
-	}
-
-	// Create directories.
-	tasksDir := cfg.TasksPath()
-	const dirMode = 0o750
-	if err := os.MkdirAll(tasksDir, dirMode); err != nil {
-		return fmt.Errorf("creating tasks directory: %w", err)
-	}
-
-	// Write config.
-	if err := cfg.Save(); err != nil {
-		return fmt.Errorf("writing config: %w", err)
-	}
-
-	// Output result.
-	format := outputFormat()
-	if format == output.FormatJSON {
-		return output.JSON(os.Stdout, map[string]string{
-			"status":  "initialized",
-			"dir":     absDir,
-			"name":    name,
-			"config":  cfg.ConfigPath(),
-			"tasks":   tasksDir,
-			"columns": strings.Join(cfg.StatusNames(), ","),
-		})
-	}
-
-	output.Messagef(os.Stdout, "Initialized board %q in %s", name, absDir)
-	output.Messagef(os.Stdout, "  Config:  %s", cfg.ConfigPath())
-	output.Messagef(os.Stdout, "  Tasks:   %s", tasksDir)
-	output.Messagef(os.Stdout, "  Columns: %s", strings.Join(cfg.StatusNames(), ", "))
-	output.Messagef(os.Stdout, "  Hint:    Install agent skills with: kanban-md skill install")
-
-	if err := offerAddKanbanToGitignore(absDir); err != nil {
-		return fmt.Errorf("updating .gitignore: %w", err)
-	}
-
-	return nil
+	return cfg.Validate()
 }
 
 // parseWIPLimits parses "status:N" pairs into a map.

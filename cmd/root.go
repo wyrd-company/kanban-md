@@ -30,10 +30,10 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "kanban-md",
-	Short: "A file-based Kanban tool powered by Markdown",
-	Long: `kanban-md is a CLI tool for managing Kanban boards using plain Markdown files.
-Tasks are stored as individual files with YAML frontmatter, making them
-easy to read, edit, and version-control. Designed for AI agents and humans alike.`,
+	Short: "A Git-native Kanban tool powered by Markdown snapshots",
+	Long: `kanban-md is a CLI tool for managing Git-native Kanban boards.
+Tasks are stored as Markdown snapshots in a custom Git ref, keeping board
+state out of the working tree while remaining visible across worktrees.`,
 	Version:       version,
 	SilenceErrors: true,
 	SilenceUsage:  true,
@@ -124,12 +124,14 @@ func loadConfig() (*config.Config, error) {
 		return nil, err
 	}
 
-	report, err := task.EnsureConsistency(cfg)
-	if err != nil {
-		return nil, err
+	if !cfg.UsesRefStorage() {
+		report, err := task.EnsureConsistency(cfg)
+		if err != nil {
+			return nil, err
+		}
+		printWarnings(report.Warnings)
+		printConsistencyRepairs(report.Repairs)
 	}
-	printWarnings(report.Warnings)
-	printConsistencyRepairs(report.Repairs)
 
 	return cfg, nil
 }

@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"strconv"
 
 	"github.com/spf13/cobra"
 
+	"github.com/antopolskiy/kanban-md/internal/clierr"
 	"github.com/antopolskiy/kanban-md/internal/output"
+	"github.com/antopolskiy/kanban-md/internal/store"
 	"github.com/antopolskiy/kanban-md/internal/task"
 )
 
@@ -31,6 +34,24 @@ func runShow(_ *cobra.Command, args []string) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
+	}
+
+	if cfg.UsesRefStorage() {
+		st, storeErr := store.NewGitStore(context.Background(), cfg)
+		if storeErr != nil {
+			return storeErr
+		}
+		snap, loadErr := st.Load(context.Background())
+		if loadErr != nil {
+			return loadErr
+		}
+		for _, t := range snap.Tasks {
+			if t.ID == id {
+				return outputTaskDetail(t)
+			}
+		}
+		return clierr.Newf(clierr.TaskNotFound, "task not found: #%d", id).
+			WithDetails(map[string]any{"id": id})
 	}
 
 	path, err := task.FindByID(cfg.TasksPath(), id)

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,11 +12,13 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/antopolskiy/kanban-md/internal/board"
 	"github.com/antopolskiy/kanban-md/internal/clierr"
 	"github.com/antopolskiy/kanban-md/internal/config"
 	"github.com/antopolskiy/kanban-md/internal/date"
 	"github.com/antopolskiy/kanban-md/internal/filelock"
 	"github.com/antopolskiy/kanban-md/internal/output"
+	"github.com/antopolskiy/kanban-md/internal/store"
 	"github.com/antopolskiy/kanban-md/internal/task"
 )
 
@@ -73,6 +76,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if cfg.UsesRefStorage() {
+		return runCreateRef(cmd, args, cfg)
+	}
 
 	title, err := resolveCreateTitle(cmd, args)
 	if err != nil {
@@ -129,6 +135,85 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	logActivity(cfg, "create", t.ID, t.Title)
 
 	return outputCreateResult(t, path)
+}
+
+func runCreateRef(cmd *cobra.Command, args []string, cfg *config.Config) error {
+	title, err := resolveCreateTitle(cmd, args)
+	if err != nil {
+		return err
+	}
+
+	st, err := store.NewGitStore(context.Background(), cfg)
+	if err != nil {
+		return err
+	}
+
+	var created *task.Task
+	if _, err := st.Mutate(context.Background(), func(snap *store.Snapshot) error {
+		now := time.Now()
+		t := &task.Task{
+			ID:       snap.NextID,
+			Title:    title,
+			Status:   cfg.Defaults.Status,
+			Priority: cfg.Defaults.Priority,
+			Class:    cfg.Defaults.Class,
+			Created:  now,
+			Updated:  now,
+		}
+		if err := applyCreateFlags(cmd, t, cfg); err != nil {
+			return err
+		}
+		if err := validateDepsInSnapshot(snap.Tasks, t); err != nil {
+			return err
+		}
+		if err := enforceSnapshotWIPLimit(cfg, snap.Tasks, t, "", t.Status); err != nil {
+			return err
+		}
+
+		slug := task.GenerateSlug(title)
+		t.File = "tasks/" + task.GenerateFilename(t.ID, slug)
+		snap.Tasks = append(snap.Tasks, t)
+		snap.NextID++
+		created = t
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	logActivity(cfg, "create", created.ID, created.Title)
+	return outputCreateResult(created, created.File)
+}
+
+func validateDepsInSnapshot(tasks []*task.Task, t *task.Task) error {
+	seen := make(map[int]bool, len(tasks))
+	for _, existing := range tasks {
+		seen[existing.ID] = true
+	}
+	if t.Parent != nil {
+		if *t.Parent == t.ID || !seen[*t.Parent] {
+			return fmt.Errorf("invalid parent: dependency task not found: #%d", *t.Parent)
+		}
+	}
+	for _, id := range t.DependsOn {
+		if id == t.ID || !seen[id] {
+			return fmt.Errorf("dependency task not found: #%d", id)
+		}
+	}
+	return nil
+}
+
+func enforceSnapshotWIPLimit(cfg *config.Config, tasks []*task.Task, t *task.Task, currentStatus, targetStatus string) error {
+	classConf := cfg.ClassByName(t.Class)
+	if classConf != nil && classConf.WIPLimit > 0 {
+		count := countByClass(tasks, t.Class, t.ID)
+		if count >= classConf.WIPLimit {
+			return task.ValidateClassWIPExceeded(t.Class, classConf.WIPLimit, count)
+		}
+	}
+	if classConf != nil && classConf.BypassColumnWIP {
+		return nil
+	}
+	return checkWIPLimit(cfg, board.CountByStatus(tasks), targetStatus, currentStatus)
 }
 
 func outputCreateResult(t *task.Task, path string) error {

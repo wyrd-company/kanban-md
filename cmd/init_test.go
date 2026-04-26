@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -59,8 +61,17 @@ func newInitCmd() *cobra.Command {
 	return cmd
 }
 
+func initGitRepoForInitTest(t *testing.T, dir string) {
+	t.Helper()
+	cmd := exec.CommandContext(context.Background(), "git", "-C", dir, "init") //nolint:gosec // test fixture path from t.TempDir.
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v\n%s", err, out)
+	}
+}
+
 func TestRunInit_DefaultName(t *testing.T) {
 	dir := t.TempDir()
+	initGitRepoForInitTest(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 
 	oldFlagDir := flagDir
@@ -87,14 +98,15 @@ func TestRunInit_DefaultName(t *testing.T) {
 		t.Errorf("config file should exist: %v", err)
 	}
 
-	// Verify tasks directory exists.
-	if _, err := os.Stat(filepath.Join(kanbanDir, "tasks")); err != nil {
-		t.Errorf("tasks directory should exist: %v", err)
+	// Verify tasks directory is not created for ref-backed boards.
+	if _, err := os.Stat(filepath.Join(kanbanDir, "tasks")); err == nil {
+		t.Errorf("tasks directory should not exist for ref-backed boards")
 	}
 }
 
 func TestRunInit_WithName(t *testing.T) {
 	dir := t.TempDir()
+	initGitRepoForInitTest(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 
 	oldFlagDir := flagDir
@@ -125,6 +137,7 @@ func TestRunInit_WithName(t *testing.T) {
 
 func TestRunInit_CustomStatuses(t *testing.T) {
 	dir := t.TempDir()
+	initGitRepoForInitTest(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 
 	oldFlagDir := flagDir
@@ -159,6 +172,7 @@ func TestRunInit_CustomStatuses(t *testing.T) {
 
 func TestRunInit_WithWIPLimits(t *testing.T) {
 	dir := t.TempDir()
+	initGitRepoForInitTest(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 
 	oldFlagDir := flagDir
@@ -203,6 +217,7 @@ func TestRunInit_AlreadyInitialized(t *testing.T) {
 
 func TestRunInit_JSONOutput(t *testing.T) {
 	dir := t.TempDir()
+	initGitRepoForInitTest(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 
 	oldFlagDir := flagDir
@@ -228,6 +243,7 @@ func TestRunInit_JSONOutput(t *testing.T) {
 
 func TestRunInit_AppendsToExistingGitignore(t *testing.T) {
 	dir := t.TempDir()
+	initGitRepoForInitTest(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 	gitignorePath := filepath.Join(dir, ".gitignore")
 	oldContent := "tmp/\n"
@@ -276,6 +292,7 @@ func TestRunInit_AppendsToExistingGitignore(t *testing.T) {
 
 func TestRunInit_SkipsGitignoreIfNo(t *testing.T) {
 	dir := t.TempDir()
+	initGitRepoForInitTest(t, dir)
 	kanbanDir := filepath.Join(dir, "kanban")
 
 	r, w, err := os.Pipe()

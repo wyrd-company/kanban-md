@@ -308,7 +308,7 @@ func WriteContextToFile(path, content string) error {
 			endOfBlock++
 		}
 		updated := text[:beginIdx] + content + text[endOfBlock:]
-		return os.WriteFile(path, []byte(updated), fileMode)
+		return os.WriteFile(path, []byte(updated), fileMode) //nolint:gosec // path is user-selected output file
 	}
 
 	// No markers found — append.
@@ -317,5 +317,5 @@ func WriteContextToFile(path, content string) error {
 		separator = "\n\n"
 	}
 	updated := text + separator + content
-	return os.WriteFile(path, []byte(updated), fileMode)
+	return os.WriteFile(path, []byte(updated), fileMode) //nolint:gosec // path is user-selected output file
 }

@@ -1,15 +1,15 @@
 # kanban-md
 
-[![CI](https://github.com/antopolskiy/kanban-md/actions/workflows/build.yml/badge.svg)](https://github.com/antopolskiy/kanban-md/actions/workflows/build.yml)
-[![Release](https://github.com/antopolskiy/kanban-md/actions/workflows/release.yml/badge.svg)](https://github.com/antopolskiy/kanban-md/actions/workflows/release.yml)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/antopolskiy/kanban-md)](https://go.dev/)
-[![Latest Release](https://img.shields.io/github/v/release/antopolskiy/kanban-md)](https://github.com/antopolskiy/kanban-md/releases/latest)
-[![codecov](https://codecov.io/gh/antopolskiy/kanban-md/graph/badge.svg)](https://codecov.io/gh/antopolskiy/kanban-md)
+[![CI](https://github.com/wyrd-company/kanban-md/actions/workflows/build.yml/badge.svg)](https://github.com/wyrd-company/kanban-md/actions/workflows/build.yml)
+[![Release](https://github.com/wyrd-company/kanban-md/actions/workflows/release.yml/badge.svg)](https://github.com/wyrd-company/kanban-md/actions/workflows/release.yml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/wyrd-company/kanban-md)](https://go.dev/)
+[![Latest Release](https://img.shields.io/github/v/release/wyrd-company/kanban-md)](https://github.com/wyrd-company/kanban-md/releases/latest)
+[![codecov](https://codecov.io/gh/wyrd-company/kanban-md/graph/badge.svg)](https://codecov.io/gh/wyrd-company/kanban-md)
 [![Go Reference](https://pkg.go.dev/badge/github.com/antopolskiy/kanban-md.svg)](https://pkg.go.dev/github.com/antopolskiy/kanban-md)
-[![Go Report Card](https://goreportcard.com/badge/github.com/antopolskiy/kanban-md)](https://goreportcard.com/report/github.com/antopolskiy/kanban-md)
+[![Go Report Card](https://goreportcard.com/badge/github.com/wyrd-company/kanban-md)](https://goreportcard.com/report/github.com/wyrd-company/kanban-md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-An agents-first file-based Kanban. Built for multi-agent workflows to allow AI agents work in parallel without clashing. Ultra-fast single binary CLI. Agent skills included. Lean and future-proof: no database, no server, no SaaS — just files.
+An agents-first Git-native Kanban. Board state lives in a hidden Git ref instead of workspace task files, so agents can coordinate across worktrees without cluttering the checkout. Ultra-fast single binary CLI. Agent skills included. No database, no server, no SaaS.
 
 ![Demo](assets/demo.gif)
 
@@ -19,7 +19,7 @@ An agents-first file-based Kanban. Built for multi-agent workflows to allow AI a
 
 1. Install the tool
 ```bash
-brew install antopolskiy/tap/kanban-md
+brew install wyrd-company/tools/kanban-md
 ```
 
 2. Go to your project directory and create a board there
@@ -28,7 +28,7 @@ brew install antopolskiy/tap/kanban-md
 kanban-md init
 ```
 
-This will create a `kanban/` directory and a `config.yml` file. I also usually add it to .gitignore.
+This creates `kanban/config.yml` and initializes the board snapshot ref at `refs/kanban/board`.
 
 
 3. Install skills for your agents
@@ -62,8 +62,8 @@ Project management tools are designed for humans clicking buttons. kanban-md is 
 
 - **Agents-first.** Token-efficient output formats (`--compact`), atomic claim-and-move operations (`pick --claim`), and installable agent skills that teach agents how to use the board — out of the box.
 - **Multi-agent safe.** Claims provide cooperative locking so multiple agents can work the same board without stepping on each other. Claims expire automatically, and the `pick` command atomically finds, claims, and moves the next available task.
-- **Self-healing task IDs.** Commands automatically detect duplicate IDs, filename/frontmatter ID mismatches, and `next_id` drift, then repair them before proceeding.
-- **Plain files.** Every task is a Markdown file. Agents, humans, scripts, and `grep` all work equally well. No API tokens, no authentication, no rate limits.
+- **Git-ref storage.** Every task is still Markdown with YAML frontmatter, but snapshots live under `refs/kanban/board` instead of `kanban/tasks/`.
+- **Workspace clean by default.** New boards keep task state out of normal files while remaining available to every worktree in the repository.
 - **Zero dependencies at runtime.** A single static binary. No database, no server, no config service.
 - **Skills included.** Pre-written skills for using the CLI tool and a multi-agent development workflow. Installable via `kanban-md skill install`.
 - **TUI for observation.** A full interactive terminal board with keyboard navigation. It auto-refreshes when task files change on disk.
@@ -79,7 +79,7 @@ kanban-md tui
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew install antopolskiy/tap/kanban-md
+brew install wyrd-company/tools/kanban-md
 ```
 
 ### Go
@@ -92,7 +92,7 @@ Homebrew also installs `kbmd` as a shorthand alias for `kanban-md`.
 
 ### Binary downloads
 
-Pre-built binaries for macOS, Linux, and Windows are available on the [Releases](https://github.com/antopolskiy/kanban-md/releases/latest) page.
+Pre-built binaries for macOS, Linux, and Windows are available on the [Releases](https://github.com/wyrd-company/kanban-md/releases/latest) page.
 
 ## Quick start
 
@@ -132,18 +132,14 @@ kanban-md delete 3 --yes
 
 ## How it works
 
-Running `kanban-md init` creates a `kanban/` directory:
+Running `kanban-md init` must happen inside a Git repository. It creates a small workspace config:
 
 ```
 kanban/
   config.yml
-  tasks/
-    001-set-up-ci-pipeline.md
-    002-write-api-docs.md
-    003-fix-login-bug.md
 ```
 
-Each task file is standard Markdown with YAML frontmatter:
+Task snapshots are committed to `refs/kanban/board`. Inside that ref, each task remains standard Markdown with YAML frontmatter:
 
 ```markdown
 ---
@@ -163,10 +159,13 @@ Optional body with more detail, context, or notes.
 The `config.yml` tracks board settings:
 
 ```yaml
-version: 3
+version: 11
 board:
   name: My Project
-tasks_dir: tasks
+storage:
+  ref: refs/kanban/board
+  notifications:
+    mode: auto
 statuses:
   - backlog
   - todo
@@ -196,7 +195,6 @@ defaults:
   status: backlog
   priority: medium
   class: standard
-next_id: 4
 ```
 
 ## Commands
@@ -219,6 +217,17 @@ After creating a board, kanban-md prompts to add the board directory (for exampl
 
 - If `.gitignore` exists in the board directory parent, the entry is appended.
 - If `.gitignore` does not exist, it is created with the board directory entry.
+
+`init` also creates the configured Git ref if it does not exist. New boards do not create `kanban/tasks/`; task state is stored in the ref snapshot.
+
+### `storage status`
+
+Show the configured board ref, current snapshot revision, notification mode, next ID, and task count.
+
+```bash
+kanban-md storage status
+kanban-md storage status --compact
+```
 
 ### `create`
 

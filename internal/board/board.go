@@ -28,6 +28,12 @@ func List(cfg *config.Config, opts ListOptions) ([]*task.Task, []task.ReadWarnin
 		return nil, nil, err
 	}
 
+	return ApplyListOptions(cfg, allTasks, opts), warnings, nil
+}
+
+// ApplyListOptions applies filtering, dependency checks, sorting, and limits
+// to an already-loaded task slice.
+func ApplyListOptions(cfg *config.Config, allTasks []*task.Task, opts ListOptions) []*task.Task {
 	tasks := Filter(allTasks, opts.Filter)
 
 	if opts.Unblocked {
@@ -45,7 +51,7 @@ func List(cfg *config.Config, opts ListOptions) ([]*task.Task, []task.ReadWarnin
 		tasks = tasks[:opts.Limit]
 	}
 
-	return tasks, warnings, nil
+	return tasks
 }
 
 // FindDependents returns human-readable messages for tasks that reference the

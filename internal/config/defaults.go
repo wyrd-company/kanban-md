@@ -6,6 +6,10 @@ const (
 	DefaultDir = "kanban"
 	// DefaultTasksDir is the default tasks subdirectory name.
 	DefaultTasksDir = "tasks"
+	// DefaultStorageRef is the default Git ref used for board snapshots.
+	DefaultStorageRef = "refs/kanban/board"
+	// DefaultNotificationMode controls notification setup for new boards.
+	DefaultNotificationMode = "auto"
 	// DefaultStatus is the default status for new tasks.
 	DefaultStatus = "backlog"
 	// DefaultPriority is the default priority for new tasks.
@@ -23,7 +27,7 @@ const (
 	ConfigFileName = "config.yml"
 
 	// CurrentVersion is the current config schema version.
-	CurrentVersion = 10
+	CurrentVersion = 11
 
 	// ArchivedStatus is the reserved status name for soft-deleted tasks.
 	ArchivedStatus = "archived"

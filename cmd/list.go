@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"slices"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/antopolskiy/kanban-md/internal/clierr"
 	"github.com/antopolskiy/kanban-md/internal/config"
 	"github.com/antopolskiy/kanban-md/internal/output"
+	"github.com/antopolskiy/kanban-md/internal/store"
 	"github.com/antopolskiy/kanban-md/internal/task"
 )
 
@@ -119,17 +121,37 @@ func runList(cmd *cobra.Command, _ []string) error {
 		Unblocked: unblocked,
 	}
 
-	tasks, warnings, err := board.List(cfg, opts)
+	tasks, err := loadTaskList(cfg, opts)
 	if err != nil {
 		return err
 	}
-	printWarnings(warnings)
 
 	if groupBy != "" {
 		return outputGroupedList(tasks, groupBy, cfg)
 	}
 
 	return outputTaskList(tasks)
+}
+
+func loadTaskList(cfg *config.Config, opts board.ListOptions) ([]*task.Task, error) {
+	if cfg.UsesRefStorage() {
+		st, err := store.NewGitStore(context.Background(), cfg)
+		if err != nil {
+			return nil, err
+		}
+		snap, err := st.Load(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		return board.ApplyListOptions(cfg, snap.Tasks, opts), nil
+	}
+
+	tasks, warnings, err := board.List(cfg, opts)
+	if err != nil {
+		return nil, err
+	}
+	printWarnings(warnings)
+	return tasks, nil
 }
 
 func outputGroupedList(tasks []*task.Task, groupBy string, cfg *config.Config) error {

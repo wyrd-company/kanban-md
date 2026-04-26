@@ -59,7 +59,7 @@ func setConfigClaimTimeout(t *testing.T, kanbanDir, timeout string) {
 	} else {
 		content += "claim_timeout: " + timeout + "\n"
 	}
-	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil { //nolint:gosec // e2e test file
 		t.Fatalf("writing config: %v", err)
 	}
 }
@@ -82,7 +82,7 @@ func bumpNextID(t *testing.T, kanbanDir string, nextID int) {
 		}
 	}
 	content = strings.Join(lines, "\n")
-	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil { //nolint:gosec // e2e test file
 		t.Fatalf("writing config: %v", err)
 	}
 }

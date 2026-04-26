@@ -19,30 +19,49 @@ func Read(path string) (*Task, error) {
 		return nil, fmt.Errorf("reading task file: %w", err)
 	}
 
-	fm, body, err := splitFrontmatter(data)
+	t, err := Parse(data)
 	if err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	t.File = path
+
+	return t, nil
+}
+
+// Parse parses task markdown bytes with YAML frontmatter.
+func Parse(data []byte) (*Task, error) {
+	fm, body, err := splitFrontmatter(data)
+	if err != nil {
+		return nil, err
 	}
 
 	var t Task
 	if err := yaml.Unmarshal(fm, &t); err != nil {
-		return nil, fmt.Errorf("parsing frontmatter in %s: %w", path, err)
+		return nil, fmt.Errorf("parsing frontmatter: %w", err)
 	}
 	if err := validateRequiredFields(&t); err != nil {
-		return nil, fmt.Errorf("parsing frontmatter in %s: %w", path, err)
+		return nil, fmt.Errorf("parsing frontmatter: %w", err)
 	}
 
 	t.Body = body
-	t.File = path
 
 	return &t, nil
 }
 
 // Write serializes a task to a markdown file with YAML frontmatter.
 func Write(path string, t *Task) error {
+	data, err := Marshal(t)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, fileMode)
+}
+
+// Marshal serializes a task to markdown bytes with YAML frontmatter.
+func Marshal(t *Task) ([]byte, error) {
 	fm, err := yaml.Marshal(t)
 	if err != nil {
-		return fmt.Errorf("marshaling frontmatter: %w", err)
+		return nil, fmt.Errorf("marshaling frontmatter: %w", err)
 	}
 
 	var buf bytes.Buffer
@@ -57,7 +76,7 @@ func Write(path string, t *Task) error {
 		}
 	}
 
-	return os.WriteFile(path, buf.Bytes(), fileMode)
+	return buf.Bytes(), nil
 }
 
 // splitFrontmatter splits a markdown file into YAML frontmatter and body.

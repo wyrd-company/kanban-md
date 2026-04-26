@@ -24,7 +24,8 @@ var (
 type Config struct {
 	Version      int            `yaml:"version"`
 	Board        BoardConfig    `yaml:"board"`
-	TasksDir     string         `yaml:"tasks_dir"`
+	TasksDir     string         `yaml:"tasks_dir,omitempty"`
+	Storage      StorageConfig  `yaml:"storage,omitempty"`
 	Statuses     []StatusConfig `yaml:"statuses"`
 	Priorities   []string       `yaml:"priorities"`
 	Defaults     DefaultsConfig `yaml:"defaults"`
@@ -32,7 +33,7 @@ type Config struct {
 	ClaimTimeout string         `yaml:"claim_timeout,omitempty"`
 	Classes      []ClassConfig  `yaml:"classes,omitempty"`
 	TUI          TUIConfig      `yaml:"tui,omitempty"`
-	NextID       int            `yaml:"next_id"`
+	NextID       int            `yaml:"next_id,omitempty"`
 
 	// dir is the absolute path to the kanban directory (not serialized).
 	dir string `yaml:"-"`
@@ -42,6 +43,17 @@ type Config struct {
 type BoardConfig struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
+}
+
+// StorageConfig holds Git-ref storage settings.
+type StorageConfig struct {
+	Ref           string             `yaml:"ref,omitempty"`
+	Notifications NotificationConfig `yaml:"notifications,omitempty"`
+}
+
+// NotificationConfig controls how live board updates are detected.
+type NotificationConfig struct {
+	Mode string `yaml:"mode,omitempty"`
 }
 
 // DefaultsConfig holds default values for new tasks.
@@ -112,6 +124,7 @@ func NewDefault(name string) *Config {
 		Version:      CurrentVersion,
 		Board:        BoardConfig{Name: name},
 		TasksDir:     DefaultTasksDir,
+		Storage:      DefaultStorageConfig(),
 		Statuses:     append([]StatusConfig{}, DefaultStatuses...),
 		Priorities:   append([]string{}, DefaultPriorities...),
 		Classes:      append([]ClassConfig{}, DefaultClasses...),
@@ -127,6 +140,16 @@ func NewDefault(name string) *Config {
 			Class:    DefaultClass,
 		},
 		NextID: 1,
+	}
+}
+
+// DefaultStorageConfig returns the default ref-backed storage configuration.
+func DefaultStorageConfig() StorageConfig {
+	return StorageConfig{
+		Ref: DefaultStorageRef,
+		Notifications: NotificationConfig{
+			Mode: DefaultNotificationMode,
+		},
 	}
 }
 
@@ -176,9 +199,31 @@ func (c *Config) Validate() error {
 	if c.Board.Name == "" {
 		return fmt.Errorf("%w: board.name is required", ErrInvalid)
 	}
-	if c.TasksDir == "" {
-		return fmt.Errorf("%w: tasks_dir is required", ErrInvalid)
+	if err := c.validateStorageMode(); err != nil {
+		return err
 	}
+	if err := c.validateWorkflowValues(); err != nil {
+		return err
+	}
+	if err := c.validateWIPLimits(); err != nil {
+		return err
+	}
+	if err := c.validateClasses(); err != nil {
+		return err
+	}
+	if err := c.validateClaimTimeout(); err != nil {
+		return err
+	}
+	if err := c.validateTUI(); err != nil {
+		return err
+	}
+	if !c.UsesRefStorage() && c.NextID < 1 {
+		return fmt.Errorf("%w: next_id must be >= 1", ErrInvalid)
+	}
+	return nil
+}
+
+func (c *Config) validateWorkflowValues() error {
 	names := c.StatusNames()
 	if len(names) < 2 { //nolint:mnd // minimum 2 statuses for a kanban board
 		return fmt.Errorf("%w: at least 2 statuses are required", ErrInvalid)
@@ -198,22 +243,41 @@ func (c *Config) Validate() error {
 	if !contains(c.Priorities, c.Defaults.Priority) {
 		return fmt.Errorf("%w: default priority %q not in priorities list", ErrInvalid, c.Defaults.Priority)
 	}
-	if err := c.validateWIPLimits(); err != nil {
-		return err
+	return nil
+}
+
+// UsesRefStorage returns true when the active board state lives in a Git ref.
+func (c *Config) UsesRefStorage() bool {
+	return c.Storage.Ref != "" && c.TasksDir == ""
+}
+
+func (c *Config) validateStorageMode() error {
+	if c.TasksDir == "" && c.NextID != 0 {
+		return fmt.Errorf("%w: tasks_dir is required", ErrInvalid)
 	}
-	if err := c.validateClasses(); err != nil {
-		return err
+	if c.Storage.Ref == "" && c.TasksDir == "" {
+		return fmt.Errorf("%w: storage.ref is required", ErrInvalid)
 	}
-	if err := c.validateClaimTimeout(); err != nil {
-		return err
-	}
-	if err := c.validateTUI(); err != nil {
-		return err
-	}
-	if c.NextID < 1 {
-		return fmt.Errorf("%w: next_id must be >= 1", ErrInvalid)
+	if c.Storage.Ref != "" {
+		return c.validateStorage()
 	}
 	return nil
+}
+
+func (c *Config) validateStorage() error {
+	if c.Storage.Ref == "" {
+		return fmt.Errorf("%w: storage.ref is required", ErrInvalid)
+	}
+	mode := c.Storage.Notifications.Mode
+	if mode == "" {
+		return fmt.Errorf("%w: storage.notifications.mode is required", ErrInvalid)
+	}
+	switch mode {
+	case "auto", "hook", "poll":
+		return nil
+	default:
+		return fmt.Errorf("%w: storage.notifications.mode must be one of auto, hook, poll", ErrInvalid)
+	}
 }
 
 func (c *Config) validateWIPLimits() error {
@@ -365,7 +429,7 @@ func (c *Config) ClassIndex(class string) int {
 }
 
 // Init creates a new kanban board in the given directory with default settings.
-// It creates the kanban directory, tasks subdirectory, and config file.
+// It creates the kanban directory and config file.
 func Init(dir, name string) (*Config, error) {
 	const dirMode = 0o750
 

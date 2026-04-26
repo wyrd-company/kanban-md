@@ -178,6 +178,7 @@ func TestRunInit_AlreadyInitialized_ErrorCode(t *testing.T) {
 
 func TestRunInit_DefaultDir(t *testing.T) {
 	dir := t.TempDir()
+	initGitRepoForInitTest(t, dir)
 
 	// Use empty flagDir so runInit falls back to config.DefaultDir relative to CWD.
 	oldFlagDir := flagDir

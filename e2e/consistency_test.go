@@ -21,7 +21,7 @@ func TestConsistencyRepair_DuplicateIDsAndNextID(t *testing.T) {
 		t.Fatalf("reading task #2 file: %v", err)
 	}
 	corrupted := strings.Replace(string(data), "id: 2", "id: 1", 1)
-	if err := os.WriteFile(task2Path, []byte(corrupted), 0o600); err != nil {
+	if err := os.WriteFile(task2Path, []byte(corrupted), 0o600); err != nil { //nolint:gosec // e2e test file
 		t.Fatalf("writing corrupted task file: %v", err)
 	}
 
