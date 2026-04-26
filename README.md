@@ -159,7 +159,7 @@ Optional body with more detail, context, or notes.
 The `config.yml` tracks board settings:
 
 ```yaml
-version: 11
+version: 12
 board:
   name: My Project
 storage:

@@ -20,6 +20,9 @@ const snapshotVersion = 1
 // ErrRefNotFound indicates that the configured board ref does not exist.
 var ErrRefNotFound = errors.New("board storage ref not found")
 
+// ErrMalformedSnapshot indicates that the Git ref contains invalid board data.
+var ErrMalformedSnapshot = errors.New("malformed board snapshot")
+
 // Snapshot is an in-memory view of a ref-backed board.
 type Snapshot struct {
 	Tasks  []*task.Task
@@ -77,8 +80,10 @@ func (s *GitStore) Load(ctx context.Context) (*Snapshot, error) {
 	}
 
 	snap := &Snapshot{Rev: rev}
+	metaFound := false
 	for _, name := range files {
 		if name == "meta.json" {
+			metaFound = true
 			if err := s.readMeta(ctx, rev, snap); err != nil {
 				return nil, err
 			}
@@ -89,14 +94,20 @@ func (s *GitStore) Load(ctx context.Context) (*Snapshot, error) {
 			if err != nil {
 				return nil, err
 			}
+			if err := validateTaskPathID(name, t); err != nil {
+				return nil, err
+			}
 			snap.Tasks = append(snap.Tasks, t)
 		}
+	}
+	if !metaFound {
+		return nil, fmt.Errorf("%w: missing meta.json", ErrMalformedSnapshot)
 	}
 	sort.SliceStable(snap.Tasks, func(i, j int) bool {
 		return snap.Tasks[i].ID < snap.Tasks[j].ID
 	})
-	if minNext := nextIDFromTasks(snap.Tasks); snap.NextID < minNext {
-		snap.NextID = minNext
+	if err := validateSnapshotConsistency(snap); err != nil {
+		return nil, err
 	}
 	return snap, nil
 }
@@ -150,9 +161,38 @@ func (s *GitStore) readMeta(ctx context.Context, rev string, snap *Snapshot) err
 		return fmt.Errorf("parsing meta.json: %w", err)
 	}
 	if m.Version != snapshotVersion {
-		return fmt.Errorf("unsupported snapshot version %d", m.Version)
+		return fmt.Errorf("%w: unsupported snapshot version %d", ErrMalformedSnapshot, m.Version)
 	}
 	snap.NextID = m.NextID
+	return nil
+}
+
+func validateTaskPathID(path string, t *task.Task) error {
+	id, err := task.ExtractIDFromFilename(filepath.Base(path))
+	if err != nil {
+		return fmt.Errorf("%w: %s has no task ID prefix: %w", ErrMalformedSnapshot, path, err)
+	}
+	if id != t.ID {
+		return fmt.Errorf("%w: %s has ID prefix %d but frontmatter ID %d", ErrMalformedSnapshot, path, id, t.ID)
+	}
+	return nil
+}
+
+func validateSnapshotConsistency(snap *Snapshot) error {
+	if snap.NextID < 1 {
+		return fmt.Errorf("%w: meta.next_id must be >= 1", ErrMalformedSnapshot)
+	}
+	seen := make(map[int]bool, len(snap.Tasks))
+	for _, t := range snap.Tasks {
+		if seen[t.ID] {
+			return fmt.Errorf("%w: duplicate task ID %d", ErrMalformedSnapshot, t.ID)
+		}
+		seen[t.ID] = true
+	}
+	if minNext := nextIDFromTasks(snap.Tasks); snap.NextID < minNext {
+		return fmt.Errorf("%w: meta.next_id %d must be greater than every task ID (want at least %d)",
+			ErrMalformedSnapshot, snap.NextID, minNext)
+	}
 	return nil
 }
 

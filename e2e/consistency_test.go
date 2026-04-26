@@ -1,6 +1,9 @@
 package e2e_test
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRefSnapshotNextIDDrift(t *testing.T) {
 	kanbanDir := initBoard(t)
@@ -16,12 +19,11 @@ updated: 2026-02-24T12:00:00Z
 `)
 	bumpNextID(t, kanbanDir, 1)
 
-	var created taskJSON
-	r := runKanbanJSON(t, kanbanDir, &created, "create", "Created after drift")
-	if r.exitCode != 0 {
-		t.Fatalf("create failed (exit %d): %s", r.exitCode, r.stderr)
+	r := runKanban(t, kanbanDir, "create", "Created after drift")
+	if r.exitCode == 0 {
+		t.Fatalf("create unexpectedly repaired malformed snapshot: %s", r.stdout)
 	}
-	if created.ID != 11 {
-		t.Errorf("created ID = %d, want 11 (max existing ID + 1)", created.ID)
+	if !strings.Contains(r.stderr, "meta.next_id") {
+		t.Fatalf("stderr = %q, want strict next_id drift error", r.stderr)
 	}
 }

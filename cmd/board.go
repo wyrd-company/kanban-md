@@ -29,8 +29,8 @@ var boardCmd = &cobra.Command{
 	Long: `Displays a summary of the board: task counts per status, WIP utilization,
 blocked and overdue counts, and priority distribution.
 
-Use --watch to keep the display live-updating. The board re-renders automatically
-whenever task files change on disk (e.g., from another terminal or an AI agent).
+Use --watch to keep the display live-updating. The board re-renders from Git
+hook notifications when available, or by polling the board ref as a fallback.
 Press Ctrl+C to stop.`,
 	RunE: runBoard,
 }
@@ -110,8 +110,14 @@ func renderGroupedBoard(cfg *config.Config, tasks []*task.Task, groupBy string) 
 }
 
 func watchBoard(cfg *config.Config, groupBy string) error {
-	// Watch both the tasks directory and the config file's directory.
-	watchPaths := []string{cfg.TasksPath(), cfg.Dir()}
+	if !cfg.UsesRefStorage() {
+		return watchBoardFiles(cfg, groupBy)
+	}
+	if cfg.Storage.Notifications.Mode == config.NotificationModePoll {
+		return pollBoard(cfg, groupBy)
+	}
+
+	watchPaths := []string{cfg.Dir()}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -140,6 +146,77 @@ func watchBoard(cfg *config.Config, groupBy string) error {
 	})
 
 	return nil
+}
+
+func watchBoardFiles(cfg *config.Config, groupBy string) error {
+	watchPaths := []string{cfg.TasksPath(), cfg.Dir()}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	w, err := watcher.New(watchPaths, func() {
+		clearScreen()
+		freshCfg, loadErr := config.Load(cfg.Dir())
+		if loadErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: reloading config: %v\n", loadErr)
+			freshCfg = cfg
+		}
+		if renderErr := renderBoard(freshCfg, groupBy); renderErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: rendering board: %v\n", renderErr)
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("starting file watcher: %w", err)
+	}
+	defer w.Close()
+
+	fmt.Fprintln(os.Stderr, "Watching for changes... (Ctrl+C to stop)")
+	w.Run(ctx, func(watchErr error) {
+		fmt.Fprintf(os.Stderr, "Warning: file watcher: %v\n", watchErr)
+	})
+	return nil
+}
+
+func pollBoard(cfg *config.Config, groupBy string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	st, err := newStore(cfg)
+	if err != nil {
+		return err
+	}
+	last := ""
+	if snap, loadErr := st.Load(ctx); loadErr == nil {
+		last = snap.Rev
+	}
+
+	fmt.Fprintln(os.Stderr, "Polling board ref for changes... (Ctrl+C to stop)")
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			snap, loadErr := st.Load(ctx)
+			if loadErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: polling board ref: %v\n", loadErr)
+				continue
+			}
+			if snap.Rev == last {
+				continue
+			}
+			last = snap.Rev
+			clearScreen()
+			freshCfg, cfgErr := config.Load(cfg.Dir())
+			if cfgErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: reloading config: %v\n", cfgErr)
+				freshCfg = cfg
+			}
+			if renderErr := renderBoard(freshCfg, groupBy); renderErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: rendering board: %v\n", renderErr)
+			}
+		}
+	}
 }
 
 // clearScreen sends ANSI escape codes to clear the terminal and move the

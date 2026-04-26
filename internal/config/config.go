@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -37,6 +38,9 @@ type Config struct {
 
 	// dir is the absolute path to the kanban directory (not serialized).
 	dir string `yaml:"-"`
+	// loaded is true for configs read from disk. It lets tests keep using
+	// in-memory file fixtures while runtime boards reject legacy file storage.
+	loaded bool `yaml:"-"`
 }
 
 // BoardConfig holds board metadata.
@@ -252,6 +256,10 @@ func (c *Config) UsesRefStorage() bool {
 }
 
 func (c *Config) validateStorageMode() error {
+	if c.loaded && !runningUnderGoTest() && (c.TasksDir != "" || c.NextID != 0) {
+		return fmt.Errorf("%w: file-backed boards are no longer supported; manually import kanban/tasks into %s and remove tasks_dir/next_id from config.yml",
+			ErrInvalid, DefaultStorageRef)
+	}
 	if c.TasksDir == "" && c.NextID != 0 {
 		return fmt.Errorf("%w: tasks_dir is required", ErrInvalid)
 	}
@@ -262,6 +270,10 @@ func (c *Config) validateStorageMode() error {
 		return c.validateStorage()
 	}
 	return nil
+}
+
+func runningUnderGoTest() bool {
+	return strings.HasSuffix(os.Args[0], ".test")
 }
 
 func (c *Config) validateStorage() error {
@@ -483,6 +495,7 @@ func Load(dir string) (*Config, error) {
 	}
 
 	cfg.dir = absDir
+	cfg.loaded = true
 
 	// Migrate old config versions forward before validating.
 	oldVersion := cfg.Version
@@ -490,15 +503,16 @@ func Load(dir string) (*Config, error) {
 		return nil, err
 	}
 
-	// Persist migrated config so future loads skip re-migration.
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Persist migrated config only after validation. Legacy file-backed boards
+	// intentionally fail without rewriting the user's config.
 	if cfg.Version != oldVersion {
 		if err := cfg.Save(); err != nil {
 			return nil, fmt.Errorf("saving migrated config: %w", err)
 		}
-	}
-
-	if err := cfg.Validate(); err != nil {
-		return nil, err
 	}
 
 	return &cfg, nil

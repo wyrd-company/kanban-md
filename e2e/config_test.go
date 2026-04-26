@@ -1,6 +1,8 @@
 package e2e_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -129,6 +131,47 @@ func TestConfigSetLegacyStorageKey(t *testing.T) {
 	}
 	if !strings.Contains(errResp.Error, "unknown config key") {
 		t.Errorf("error = %q, want 'unknown config key'", errResp.Error)
+	}
+}
+
+func TestLegacyFileBackedConfigRejected(t *testing.T) {
+	root := t.TempDir()
+	kanbanDir := filepath.Join(root, "kanban")
+	if err := os.MkdirAll(filepath.Join(kanbanDir, "tasks"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	configYAML := `version: 12
+board:
+  name: Legacy
+tasks_dir: tasks
+storage:
+  ref: refs/kanban/board
+  notifications:
+    mode: poll
+statuses:
+  - backlog
+  - done
+  - archived
+priorities:
+  - medium
+defaults:
+  status: backlog
+  priority: medium
+claim_timeout: 1h
+tui:
+  title_lines: 2
+next_id: 1
+`
+	if err := os.WriteFile(filepath.Join(kanbanDir, "config.yml"), []byte(configYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := runKanban(t, kanbanDir, "list")
+	if r.exitCode == 0 {
+		t.Fatalf("legacy file-backed config unexpectedly loaded: %s", r.stdout)
+	}
+	if !strings.Contains(r.stderr, "file-backed boards are no longer supported") {
+		t.Fatalf("stderr = %q, want hard-break manual-import message", r.stderr)
 	}
 }
 

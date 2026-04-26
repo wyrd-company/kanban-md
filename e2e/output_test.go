@@ -246,8 +246,8 @@ func TestREADMEDocumentsAllCommands(t *testing.T) {
 	}
 
 	// Config example must show current schema version.
-	if !strings.Contains(readme, "version: 11") {
-		t.Error("README config example still shows old version (should be version: 11)")
+	if !strings.Contains(readme, "version: 12") {
+		t.Error("README config example still shows old version (should be version: 12)")
 	}
 
 	// Config example must show ref storage.
