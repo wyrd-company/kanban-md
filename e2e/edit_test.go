@@ -134,6 +134,20 @@ func TestMutationsPreserveUnknownFrontmatter(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	const listCommand = "list"
+	for _, args := range [][]string{
+		{listCommand},
+		{"--compact", listCommand},
+	} {
+		r := runKanban(t, kanbanDir, args...)
+		if r.exitCode != 0 {
+			t.Fatalf("%v failed: %s", args, r.stderr)
+		}
+		if strings.Contains(r.stdout, "custom_value") || strings.Contains(r.stdout, "retained") {
+			t.Errorf("%v exposed custom frontmatter:\n%s", args, r.stdout)
+		}
+	}
+
 	var edited taskJSON
 	r := runKanbanJSON(t, kanbanDir, &edited, "edit", "1", "--title", "Changed sample")
 	if r.exitCode != 0 {
