@@ -125,9 +125,36 @@ func taskYAMLKeys() map[string]struct{} {
 }
 
 func preserveNodePresentation(current, original *yaml.Node) {
-	current.Style = original.Style
 	current.Anchor = original.Anchor
 	current.HeadComment = original.HeadComment
 	current.LineComment = original.LineComment
 	current.FootComment = original.FootComment
+	if current.Kind != original.Kind {
+		return
+	}
+	current.Style = original.Style
+
+	switch current.Kind {
+	case yaml.DocumentNode, yaml.SequenceNode:
+		for i := 0; i < len(current.Content) && i < len(original.Content); i++ {
+			preserveNodePresentation(current.Content[i], original.Content[i])
+		}
+	case yaml.MappingNode:
+		preserveMappingPresentation(current, original)
+	}
+}
+
+func preserveMappingPresentation(current, original *yaml.Node) {
+	for currentIndex := 0; currentIndex < len(current.Content); currentIndex += yamlMappingPairWidth {
+		currentKey := current.Content[currentIndex]
+		for originalIndex := 0; originalIndex < len(original.Content); originalIndex += yamlMappingPairWidth {
+			originalKey := original.Content[originalIndex]
+			if currentKey.Value != originalKey.Value {
+				continue
+			}
+			preserveNodePresentation(currentKey, originalKey)
+			preserveNodePresentation(current.Content[currentIndex+1], original.Content[originalIndex+1])
+			break
+		}
+	}
 }

@@ -117,6 +117,40 @@ custom_copy: *shared
 	}
 }
 
+func TestWritePreservesUnknownAliasToNestedCanonicalNode(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+tags:
+  - &shared alpha
+  - beta
+custom_copy: *shared
+---
+`)
+
+	tk, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	tk.Tags[1] = "gamma"
+	if err = Write(path, tk); err != nil {
+		t.Fatalf("Write() error: %v", err)
+	}
+
+	mapping := readFrontmatterNode(t, path)
+	tags := mappingValue(t, mapping, "tags")
+	if got := tags.Content[0].Anchor; got != "shared" {
+		t.Errorf("first tag anchor = %q, want shared", got)
+	}
+	if got := tags.Content[1].Value; got != "gamma" {
+		t.Errorf("second tag = %q, want gamma", got)
+	}
+}
+
 func TestWriteUpdatesOptionalCanonicalFieldsWithoutPromotingExtras(t *testing.T) {
 	path := writeRawTask(t, `---
 id: 1
