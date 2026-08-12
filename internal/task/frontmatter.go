@@ -135,13 +135,42 @@ func preserveNodePresentation(current, original *yaml.Node) {
 	current.Style = original.Style
 
 	switch current.Kind {
-	case yaml.DocumentNode, yaml.SequenceNode:
+	case yaml.DocumentNode:
 		for i := 0; i < len(current.Content) && i < len(original.Content); i++ {
 			preserveNodePresentation(current.Content[i], original.Content[i])
 		}
+	case yaml.SequenceNode:
+		preserveSequencePresentation(current, original)
 	case yaml.MappingNode:
 		preserveMappingPresentation(current, original)
 	}
+}
+
+func preserveSequencePresentation(current, original *yaml.Node) {
+	used := make([]bool, len(original.Content))
+	for _, currentItem := range current.Content {
+		for originalIndex, originalItem := range original.Content {
+			if used[originalIndex] || !yamlNodesSemanticallyEqual(currentItem, originalItem) {
+				continue
+			}
+			preserveNodePresentation(currentItem, originalItem)
+			used[originalIndex] = true
+			break
+		}
+	}
+}
+
+func yamlNodesSemanticallyEqual(left, right *yaml.Node) bool {
+	if left.Kind != right.Kind || left.Tag != right.Tag || left.Value != right.Value ||
+		len(left.Content) != len(right.Content) {
+		return false
+	}
+	for i := range left.Content {
+		if !yamlNodesSemanticallyEqual(left.Content[i], right.Content[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func preserveMappingPresentation(current, original *yaml.Node) {

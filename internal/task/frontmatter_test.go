@@ -151,6 +151,47 @@ custom_copy: *shared
 	}
 }
 
+func TestWriteRefusesToRetargetUnknownAliasAfterNestedCanonicalRemoval(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+tags:
+  - &shared alpha
+  - beta
+custom_copy: *shared
+---
+`)
+	before, err := os.ReadFile(path) //nolint:gosec // test-owned temporary path
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tk, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	tk.Tags = tk.Tags[1:]
+	err = Write(path, tk)
+	if err == nil {
+		t.Fatal("Write() retargeted an unknown alias after removing its anchored item")
+	}
+	if !strings.Contains(err.Error(), "unknown anchor 'shared'") {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	after, readErr := os.ReadFile(path) //nolint:gosec // test-owned temporary path
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(after, before) {
+		t.Error("Write() changed the file after nested anchor validation failed")
+	}
+}
+
 func TestWriteUpdatesOptionalCanonicalFieldsWithoutPromotingExtras(t *testing.T) {
 	path := writeRawTask(t, `---
 id: 1
