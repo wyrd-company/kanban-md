@@ -160,6 +160,11 @@ tags:
 Optional body with more detail, context, or notes.
 ```
 
+When kanban-md updates a task, it preserves unrecognized YAML frontmatter
+properties, including nested values, tags, comments, anchors, and aliases. This
+lets other tools store their own metadata without kanban-md deleting it. These
+properties remain file-only and are not added to table, compact, or JSON output.
+
 The `config.yml` tracks board settings:
 
 ```yaml

@@ -3,6 +3,8 @@ package task
 import (
 	"path/filepath"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 const v1FixtureDir = "testdata/compat/v1/tasks"
@@ -237,6 +239,30 @@ func TestCompatV1TaskWithClaimAndClass(t *testing.T) {
 	}
 	if tk.Class != "expedite" {
 		t.Errorf("Class = %q, want %q", tk.Class, "expedite")
+	}
+}
+
+func TestCompatV1TaskPreservesUnknownProperties(t *testing.T) {
+	path := filepath.Join(v1FixtureDir, "007-with-extra-properties.md")
+	tk, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() v1 task with extra properties: %v", err)
+	}
+
+	tk.Priority = "high"
+	outputPath := filepath.Join(t.TempDir(), "007-with-extra-properties.md")
+	if err = Write(outputPath, tk); err != nil {
+		t.Fatalf("Write() v1 task with extra properties: %v", err)
+	}
+
+	mapping := readFrontmatterNode(t, outputPath)
+	customSource := mappingValue(t, mapping, "custom_source")
+	if customSource.Anchor != "source" {
+		t.Errorf("custom_source anchor = %q, want source", customSource.Anchor)
+	}
+	customCopy := mappingValue(t, mapping, "custom_copy")
+	if customCopy.Kind != yaml.AliasNode || customCopy.Value != "source" {
+		t.Errorf("custom_copy = kind %d value %q, want alias source", customCopy.Kind, customCopy.Value)
 	}
 }
 

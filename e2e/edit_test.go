@@ -117,6 +117,61 @@ func TestEditTitleRename(t *testing.T) {
 	}
 }
 
+func TestMutationsPreserveUnknownFrontmatter(t *testing.T) {
+	kanbanDir := initBoard(t)
+	created := mustCreateTask(t, kanbanDir, "Generic sample")
+	data, err := os.ReadFile(created.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	closing := strings.LastIndex(content, "---\n")
+	if closing <= 0 {
+		t.Fatalf("task has no closing frontmatter delimiter:\n%s", content)
+	}
+	content = content[:closing] + "custom_value: retained\n" + content[closing:]
+	if err = os.WriteFile(created.File, []byte(content), 0o600); err != nil { //nolint:gosec // test binary returned this task path
+		t.Fatal(err)
+	}
+
+	var edited taskJSON
+	r := runKanbanJSON(t, kanbanDir, &edited, "edit", "1", "--title", "Changed sample")
+	if r.exitCode != 0 {
+		t.Fatalf("edit failed: %s", r.stderr)
+	}
+	assertCustomValuePreserved(t, edited.File)
+
+	r = runKanban(t, kanbanDir, "move", "1", statusTodo)
+	if r.exitCode != 0 {
+		t.Fatalf("move failed: %s", r.stderr)
+	}
+	assertCustomValuePreserved(t, edited.File)
+
+	r = runKanban(t, kanbanDir, "edit", "1", "--claim", claimTestAgent)
+	if r.exitCode != 0 {
+		t.Fatalf("claim failed: %s", r.stderr)
+	}
+	assertCustomValuePreserved(t, edited.File)
+
+	r = runKanban(t, kanbanDir, "archive", "1", "--claim", claimTestAgent)
+	if r.exitCode != 0 {
+		t.Fatalf("archive failed: %s", r.stderr)
+	}
+	assertCustomValuePreserved(t, edited.File)
+}
+
+func assertCustomValuePreserved(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path) //nolint:gosec // test helper receives a task path from the test binary
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "custom_value: retained"
+	if !strings.Contains(string(data), want) {
+		t.Errorf("%s does not contain %q:\n%s", path, want, data)
+	}
+}
+
 func TestEditNoChanges(t *testing.T) {
 	kanbanDir := initBoard(t)
 	mustCreateTask(t, kanbanDir, "Stable task")

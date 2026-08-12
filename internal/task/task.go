@@ -4,6 +4,8 @@ package task
 import (
 	"time"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/antopolskiy/kanban-md/internal/date"
 )
 
@@ -34,4 +36,8 @@ type Task struct {
 
 	// File is the path to the task file (not in YAML).
 	File string `yaml:"-" json:"file,omitempty"`
+
+	// frontmatter retains the source YAML mapping so properties not owned by
+	// kanban-md survive typed task mutations.
+	frontmatter *yaml.Node
 }

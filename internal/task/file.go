@@ -48,6 +48,10 @@ func Write(path string, t *Task) error {
 	if err != nil {
 		return fmt.Errorf("marshaling frontmatter: %w", err)
 	}
+	var validated yaml.Node
+	if err = yaml.Unmarshal(fm, &validated); err != nil {
+		return fmt.Errorf("validating frontmatter: %w", err)
+	}
 
 	var buf bytes.Buffer
 	buf.WriteString("---\n")
