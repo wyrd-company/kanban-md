@@ -187,7 +187,7 @@ func preserveNodePresentation(current, original *yaml.Node) {
 func preserveSequencePresentation(current, original *yaml.Node) {
 	if yamlNodesSemanticallyEqual(current, original) {
 		for i := range current.Content {
-			preserveNodePresentation(current.Content[i], original.Content[i])
+			current.Content[i] = original.Content[i]
 		}
 		return
 	}
@@ -234,6 +234,8 @@ func uniqueSequenceItemMatch(currentItems, originalItems []*yaml.Node, target *y
 }
 
 func yamlNodesSemanticallyEqual(left, right *yaml.Node) bool {
+	left = resolvedYAMLNode(left)
+	right = resolvedYAMLNode(right)
 	if left.Kind != right.Kind || left.Tag != right.Tag || left.Value != right.Value ||
 		len(left.Content) != len(right.Content) {
 		return false
@@ -244,6 +246,13 @@ func yamlNodesSemanticallyEqual(left, right *yaml.Node) bool {
 		}
 	}
 	return true
+}
+
+func resolvedYAMLNode(node *yaml.Node) *yaml.Node {
+	if node.Kind == yaml.AliasNode && node.Alias != nil {
+		return node.Alias
+	}
+	return node
 }
 
 func preserveMappingPresentation(current, original *yaml.Node) {

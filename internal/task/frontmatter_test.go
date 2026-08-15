@@ -272,6 +272,43 @@ custom_copy: *shared
 	}
 }
 
+func TestWritePreservesUnchangedCanonicalSequenceContainingAlias(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+tags:
+  - &shared alpha
+  - *shared
+custom_copy: *shared
+---
+`)
+
+	tk, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	tk.Priority = "high"
+	if err = Write(path, tk); err != nil {
+		t.Fatalf("Write() unrelated field error: %v", err)
+	}
+
+	mapping := readFrontmatterNode(t, path)
+	tags := mappingValue(t, mapping, "tags")
+	if tags.Content[0].Anchor != frontmatterTestAnchor {
+		t.Errorf("first tag anchor = %q, want %q", tags.Content[0].Anchor, frontmatterTestAnchor)
+	}
+	if tags.Content[1].Kind != yaml.AliasNode || tags.Content[1].Value != frontmatterTestAnchor {
+		t.Errorf("second tag = kind %d value %q, want alias %q", tags.Content[1].Kind, tags.Content[1].Value, frontmatterTestAnchor)
+	}
+	if customCopy := mappingValue(t, mapping, "custom_copy"); customCopy.Kind != yaml.AliasNode {
+		t.Errorf("custom_copy kind = %d, want alias", customCopy.Kind)
+	}
+}
+
 func TestWriteUpdatesOptionalCanonicalFieldsWithoutPromotingExtras(t *testing.T) {
 	path := writeRawTask(t, `---
 id: 1
