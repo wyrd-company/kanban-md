@@ -10,6 +10,28 @@ relationships:
 
 # Preserve extra task front-matter properties
 
+## Upstream acceptance context
+
+[Issue 16](https://github.com/antopolskiy/kanban-md/issues/16) confirms that
+the maintainer accepts preservation of arbitrary task front-matter properties
+in principle. The requested review emphasis is edge-case coverage for mutation
+and repair mechanisms. This makes the shared `internal/task` writer and the
+consistency-repair path part of the acceptance boundary, not only direct edit
+commands.
+
+The repository has no `CONTRIBUTING.md` or pull request template. The
+maintainer-authored [PR 9](https://github.com/antopolskiy/kanban-md/pull/9) and
+[PR 10](https://github.com/antopolskiy/kanban-md/pull/10) establish the visible
+contribution pattern:
+
+- conventional commit subjects with explanatory commit bodies;
+- a pull request summary centered on user-visible behavior;
+- an explicit list of validation commands;
+- broad unit, snapshot, fuzz, and end-to-end edge-case coverage when the change
+  affects stateful interaction;
+- README changes in the same pull request when behavior is user-visible; and
+- an issue-closing reference in the pull request description.
+
 ## Conclusion
 
 kanban-md should retain the parsed YAML mapping on each task and merge typed
