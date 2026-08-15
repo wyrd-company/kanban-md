@@ -114,7 +114,11 @@ func mergeTaskFrontmatter(source, canonical *yaml.Node) *yaml.Node {
 }
 
 func nodeComments(node *yaml.Node) string {
-	return joinYAMLComments(node.HeadComment, node.LineComment, node.FootComment)
+	comments := joinYAMLComments(node.HeadComment, node.LineComment)
+	for _, child := range node.Content {
+		comments = joinYAMLComments(comments, nodeComments(child))
+	}
+	return joinYAMLComments(comments, node.FootComment)
 }
 
 func withLeadingComments(node *yaml.Node, comments string) *yaml.Node {
@@ -181,17 +185,52 @@ func preserveNodePresentation(current, original *yaml.Node) {
 }
 
 func preserveSequencePresentation(current, original *yaml.Node) {
-	used := make([]bool, len(original.Content))
+	if yamlNodesSemanticallyEqual(current, original) {
+		for i := range current.Content {
+			preserveNodePresentation(current.Content[i], original.Content[i])
+		}
+		return
+	}
+
+	matchedOriginal := make([]bool, len(original.Content))
 	for _, currentItem := range current.Content {
-		for originalIndex, originalItem := range original.Content {
-			if used[originalIndex] || !yamlNodesSemanticallyEqual(currentItem, originalItem) {
-				continue
-			}
-			preserveNodePresentation(currentItem, originalItem)
-			used[originalIndex] = true
-			break
+		originalIndex, unique := uniqueSequenceItemMatch(current.Content, original.Content, currentItem)
+		if !unique {
+			continue
+		}
+		preserveNodePresentation(currentItem, original.Content[originalIndex])
+		matchedOriginal[originalIndex] = true
+	}
+
+	for i, originalItem := range original.Content {
+		if !matchedOriginal[i] {
+			current.FootComment = joinYAMLComments(current.FootComment, nodeComments(originalItem))
 		}
 	}
+}
+
+func uniqueSequenceItemMatch(currentItems, originalItems []*yaml.Node, target *yaml.Node) (int, bool) {
+	currentMatches := 0
+	for _, item := range currentItems {
+		if yamlNodesSemanticallyEqual(target, item) {
+			currentMatches++
+		}
+	}
+	if currentMatches != 1 {
+		return 0, false
+	}
+
+	originalIndex := -1
+	for i, item := range originalItems {
+		if !yamlNodesSemanticallyEqual(target, item) {
+			continue
+		}
+		if originalIndex >= 0 {
+			return 0, false
+		}
+		originalIndex = i
+	}
+	return originalIndex, originalIndex >= 0
 }
 
 func yamlNodesSemanticallyEqual(left, right *yaml.Node) bool {

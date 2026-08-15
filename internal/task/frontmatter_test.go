@@ -232,6 +232,46 @@ custom_copy: *shared
 	}
 }
 
+func TestWriteRefusesToRetargetUnknownAliasBetweenDuplicateSequenceItems(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+tags:
+  - &shared alpha
+  - alpha
+custom_copy: *shared
+---
+`)
+	before, err := os.ReadFile(path) //nolint:gosec // test-owned temporary path
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tk, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	tk.Tags = tk.Tags[1:]
+	err = Write(path, tk)
+	if err == nil {
+		t.Fatal("Write() retargeted an unknown alias between duplicate sequence items")
+	}
+	if !strings.Contains(err.Error(), "unknown anchor 'shared'") {
+		t.Fatalf("Write() error = %v", err)
+	}
+	after, readErr := os.ReadFile(path) //nolint:gosec // test-owned temporary path
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(after, before) {
+		t.Error("Write() changed the file after ambiguous duplicate removal")
+	}
+}
+
 func TestWriteUpdatesOptionalCanonicalFieldsWithoutPromotingExtras(t *testing.T) {
 	path := writeRawTask(t, `---
 id: 1
@@ -402,6 +442,40 @@ assignee: sample-user # keep assignment note
 	} {
 		if !strings.Contains(string(data), comment) {
 			t.Errorf("written task lost %q after removing assignee:\n%s", comment, data)
+		}
+	}
+}
+
+func TestWritePreservesDescendantCommentsWhenCanonicalSequenceIsRemoved(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+tags:
+  # integration-owned item note
+  - alpha # keep item comment
+custom_value: retained
+---
+`)
+
+	tk, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	tk.Tags = nil
+	if err = Write(path, tk); err != nil {
+		t.Fatalf("Write() error: %v", err)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // test-owned temporary path
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, comment := range []string{"# integration-owned item note", "# keep item comment"} {
+		if !strings.Contains(string(data), comment) {
+			t.Errorf("written task lost descendant comment %q after removing tags:\n%s", comment, data)
 		}
 	}
 }
