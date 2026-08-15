@@ -17,7 +17,10 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-const frontmatterTestStatus = "todo"
+const (
+	frontmatterTestAnchor = "shared"
+	frontmatterTestStatus = "todo"
+)
 
 func TestWritePreservesUnknownFrontmatterNodesAndOrder(t *testing.T) {
 	path := writeRawTask(t, `---
@@ -66,7 +69,7 @@ Body
 	if got := mappingKey(t, mapping, "custom_scalar").HeadComment; got != "# integration-owned note" {
 		t.Errorf("custom_scalar head comment = %q", got)
 	}
-	if got := mappingValue(t, mapping, "custom_anchor"); got.Anchor != "shared" {
+	if got := mappingValue(t, mapping, "custom_anchor"); got.Anchor != frontmatterTestAnchor {
 		t.Errorf("custom_anchor anchor = %q, want shared", got.Anchor)
 	}
 	if got := mappingValue(t, mapping, "id"); got.Anchor != "canonical" {
@@ -107,6 +110,9 @@ custom_copy: *shared
 		!strings.Contains(err.Error(), "unknown anchor 'shared'") {
 		t.Fatalf("Write() error = %v", err)
 	}
+	if !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "inline or remove the alias") {
+		t.Fatalf("Write() error does not identify the file and remedy: %v", err)
+	}
 
 	after, readErr := os.ReadFile(path) //nolint:gosec // test-owned temporary path
 	if readErr != nil {
@@ -143,11 +149,44 @@ custom_copy: *shared
 
 	mapping := readFrontmatterNode(t, path)
 	tags := mappingValue(t, mapping, "tags")
-	if got := tags.Content[0].Anchor; got != "shared" {
+	if got := tags.Content[0].Anchor; got != frontmatterTestAnchor {
 		t.Errorf("first tag anchor = %q, want shared", got)
 	}
 	if got := tags.Content[1].Value; got != "gamma" {
 		t.Errorf("second tag = %q, want gamma", got)
+	}
+}
+
+func TestWriteKeepsUnknownAliasBoundToChangedCanonicalField(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+estimate: &shared 4h
+custom_copy: *shared
+---
+`)
+
+	tk, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	tk.Estimate = "8h"
+	if err = Write(path, tk); err != nil {
+		t.Fatalf("Write() error: %v", err)
+	}
+
+	mapping := readFrontmatterNode(t, path)
+	estimate := mappingValue(t, mapping, "estimate")
+	if estimate.Anchor != frontmatterTestAnchor || estimate.Value != "8h" {
+		t.Errorf("estimate = anchor %q value %q, want shared 8h", estimate.Anchor, estimate.Value)
+	}
+	customCopy := mappingValue(t, mapping, "custom_copy")
+	if customCopy.Kind != yaml.AliasNode || customCopy.Value != frontmatterTestAnchor {
+		t.Errorf("custom_copy = kind %d value %q, want alias shared", customCopy.Kind, customCopy.Value)
 	}
 }
 
@@ -270,6 +309,61 @@ custom_value: retained
 	}
 	if strings.Contains(string(encoded), "custom_value") || strings.Contains(string(encoded), "frontmatter") {
 		t.Errorf("JSON exposed retained frontmatter: %s", encoded)
+	}
+}
+
+func TestReadRejectsDuplicateCanonicalKeys(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+status: done
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+---
+`)
+
+	_, err := Read(path)
+	if err == nil {
+		t.Fatal("Read() accepted duplicate canonical keys")
+	}
+	if !strings.Contains(err.Error(), "mapping key \"status\" already defined") {
+		t.Fatalf("Read() error = %v", err)
+	}
+}
+
+func TestWritePreservesFrontmatterBoundaryComments(t *testing.T) {
+	path := writeRawTask(t, `---
+# leading frontmatter comment
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+custom_value: retained
+# trailing frontmatter comment
+---
+`)
+
+	tk, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	tk.Priority = "high"
+	if err = Write(path, tk); err != nil {
+		t.Fatalf("Write() error: %v", err)
+	}
+
+	data, err := os.ReadFile(path) //nolint:gosec // test-owned temporary path
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, comment := range []string{"# leading frontmatter comment", "# trailing frontmatter comment"} {
+		if !strings.Contains(string(data), comment) {
+			t.Errorf("written task does not contain %q:\n%s", comment, data)
+		}
 	}
 }
 

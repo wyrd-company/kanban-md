@@ -86,6 +86,10 @@ func mergeTaskFrontmatter(source, canonical *yaml.Node) *yaml.Node {
 		if !present {
 			continue
 		}
+		// The field key gives a top-level value stable identity, so its anchor
+		// remains bound when the typed value changes. Sequence items have no
+		// stable key and are matched by semantic value below to prevent an
+		// anchor from moving to a different item after removal.
 		preserveNodePresentation(currentValue, oldValue)
 		merged.Content = append(merged.Content, key, currentValue)
 		seen[key.Value] = true

@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -161,9 +162,15 @@ func TestMutationsPreserveUnknownFrontmatter(t *testing.T) {
 	}
 	assertCustomValuePreserved(t, edited.File)
 
-	r = runKanban(t, kanbanDir, "edit", "1", "--claim", claimTestAgent)
+	r = runKanban(t, kanbanDir, "pick", "--claim", claimTestAgent, "--status", statusTodo, "--no-body")
 	if r.exitCode != 0 {
-		t.Fatalf("claim failed: %s", r.stderr)
+		t.Fatalf("pick failed: %s", r.stderr)
+	}
+	assertCustomValuePreserved(t, edited.File)
+
+	r = runKanban(t, kanbanDir, "handoff", "1", "--claim", claimTestAgent, "--note", "Ready for review")
+	if r.exitCode != 0 {
+		t.Fatalf("handoff failed: %s", r.stderr)
 	}
 	assertCustomValuePreserved(t, edited.File)
 
@@ -172,6 +179,51 @@ func TestMutationsPreserveUnknownFrontmatter(t *testing.T) {
 		t.Fatalf("archive failed: %s", r.stderr)
 	}
 	assertCustomValuePreserved(t, edited.File)
+}
+
+func TestReleaseRefusesToOrphanUnknownAlias(t *testing.T) {
+	kanbanDir := initBoard(t)
+	created := mustCreateTask(t, kanbanDir, "Generic sample")
+	r := runKanban(t, kanbanDir, "edit", "1", "--claim", claimTestAgent)
+	if r.exitCode != 0 {
+		t.Fatalf("claim failed: %s", r.stderr)
+	}
+
+	data, err := os.ReadFile(created.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := strings.Replace(
+		string(data),
+		"claimed_by: "+claimTestAgent,
+		"claimed_by: &shared "+claimTestAgent+"\ncustom_copy: *shared",
+		1,
+	)
+	if content == string(data) {
+		t.Fatalf("claimed task does not contain claimed_by:\n%s", data)
+	}
+	if err = os.Chmod(created.File, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(created.File, []byte(content), 0o600); err != nil { //nolint:gosec // test binary returned this task path
+		t.Fatal(err)
+	}
+	before := []byte(content)
+
+	r = runKanban(t, kanbanDir, "edit", "1", "--release")
+	if r.exitCode == 0 {
+		t.Fatal("release succeeded after removing an anchor used by an unknown alias")
+	}
+	if !strings.Contains(r.stderr, created.File) || !strings.Contains(r.stderr, "inline or remove the alias") {
+		t.Fatalf("release error does not identify the file and remedy: %s", r.stderr)
+	}
+	after, err := os.ReadFile(created.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Errorf("release changed the file after frontmatter validation failed:\n%s", after)
+	}
 }
 
 func assertCustomValuePreserved(t *testing.T, path string) {
