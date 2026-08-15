@@ -131,7 +131,7 @@ func TestMutationsPreserveUnknownFrontmatter(t *testing.T) {
 		t.Fatalf("task has no closing frontmatter delimiter:\n%s", content)
 	}
 	content = content[:closing] + "custom_value: retained\n" + content[closing:]
-	if err = os.WriteFile(created.File, []byte(content), 0o600); err != nil { //nolint:gosec // test binary returned this task path
+	if err = os.WriteFile(created.File, []byte(content), 0o600); err != nil { //nolint:gosec,nolintlint // test binary returned this task path
 		t.Fatal(err)
 	}
 
@@ -205,7 +205,7 @@ func TestReleaseRefusesToOrphanUnknownAlias(t *testing.T) {
 	if err = os.Chmod(created.File, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(created.File, []byte(content), 0o600); err != nil { //nolint:gosec // test binary returned this task path
+	if err = os.WriteFile(created.File, []byte(content), 0o600); err != nil { //nolint:gosec,nolintlint // test binary returned this task path
 		t.Fatal(err)
 	}
 	before := []byte(content)

@@ -1577,7 +1577,7 @@ func TestBoard_RaisePriorityPreservesUnknownFrontmatter(t *testing.T) {
 		t.Fatalf("task has no closing frontmatter delimiter:\n%s", content)
 	}
 	content = content[:closing] + "custom_value: retained\n" + content[closing:]
-	if err = os.WriteFile(path, []byte(content), 0o600); err != nil { //nolint:gosec // test-owned temporary path
+	if err = os.WriteFile(path, []byte(content), 0o600); err != nil { //nolint:gosec,nolintlint // test-owned temporary path
 		t.Fatal(err)
 	}
 
