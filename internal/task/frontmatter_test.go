@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -304,6 +305,46 @@ custom_copy: *shared
 	if tags.Content[1].Kind != yaml.AliasNode || tags.Content[1].Value != frontmatterTestAnchor {
 		t.Errorf("second tag = kind %d value %q, want alias %q", tags.Content[1].Kind, tags.Content[1].Value, frontmatterTestAnchor)
 	}
+	if customCopy := mappingValue(t, mapping, "custom_copy"); customCopy.Kind != yaml.AliasNode {
+		t.Errorf("custom_copy kind = %d, want alias", customCopy.Kind)
+	}
+}
+
+func TestWriteDoesNotLetCrossFieldAliasOverrideCanonicalSequence(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: &shared Alpha
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+tags:
+  - *shared
+custom_copy: *shared
+---
+`)
+
+	tk, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	tk.Title = "Beta"
+	if err = Write(path, tk); err != nil {
+		t.Fatalf("Write() error: %v", err)
+	}
+
+	reloaded, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() updated task error: %v", err)
+	}
+	if reloaded.Title != "Beta" {
+		t.Errorf("Title = %q, want Beta", reloaded.Title)
+	}
+	if !slices.Equal(reloaded.Tags, []string{"Alpha"}) {
+		t.Errorf("Tags = %v, want [Alpha]", reloaded.Tags)
+	}
+
+	mapping := readFrontmatterNode(t, path)
 	if customCopy := mappingValue(t, mapping, "custom_copy"); customCopy.Kind != yaml.AliasNode {
 		t.Errorf("custom_copy kind = %d, want alias", customCopy.Kind)
 	}

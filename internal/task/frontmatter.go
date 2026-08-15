@@ -187,7 +187,12 @@ func preserveNodePresentation(current, original *yaml.Node) {
 func preserveSequencePresentation(current, original *yaml.Node) {
 	if yamlNodesSemanticallyEqual(current, original) {
 		for i := range current.Content {
-			current.Content[i] = original.Content[i]
+			originalItem := original.Content[i]
+			if originalItem.Kind != yaml.AliasNode || yamlNodeContains(original, originalItem.Alias) {
+				current.Content[i] = originalItem
+				continue
+			}
+			preserveNodePresentation(current.Content[i], originalItem)
 		}
 		return
 	}
@@ -253,6 +258,18 @@ func resolvedYAMLNode(node *yaml.Node) *yaml.Node {
 		return node.Alias
 	}
 	return node
+}
+
+func yamlNodeContains(root, target *yaml.Node) bool {
+	if root == target {
+		return true
+	}
+	for _, child := range root.Content {
+		if yamlNodeContains(child, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func preserveMappingPresentation(current, original *yaml.Node) {
