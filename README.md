@@ -167,6 +167,8 @@ properties remain file-only and are not added to table, compact, or JSON output.
 If a property aliases an anchor on a kanban-md field and a mutation removes that
 anchor, kanban-md refuses the write and leaves the file unchanged. Inline or
 remove the alias before retrying the mutation.
+When a kanban-md field keeps its key but changes value, aliases to that field's
+anchor follow the new value.
 
 The `config.yml` tracks board settings:
 

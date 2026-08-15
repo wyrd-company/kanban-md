@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	frontmatterTestAnchor = "shared"
-	frontmatterTestStatus = "todo"
+	frontmatterTestAnchor      = "shared"
+	frontmatterTestStatus      = "todo"
+	frontmatterTrailingComment = "# trailing frontmatter comment"
 )
 
 func TestWritePreservesUnknownFrontmatterNodesAndOrder(t *testing.T) {
@@ -360,9 +361,93 @@ custom_value: retained
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, comment := range []string{"# leading frontmatter comment", "# trailing frontmatter comment"} {
+	for _, comment := range []string{"# leading frontmatter comment", frontmatterTrailingComment} {
 		if !strings.Contains(string(data), comment) {
 			t.Errorf("written task does not contain %q:\n%s", comment, data)
+		}
+	}
+}
+
+func TestWritePreservesTrailingCommentWhenCanonicalFieldIsRemoved(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+# integration-owned assignment
+assignee: sample-user # keep assignment note
+# trailing frontmatter comment
+---
+`)
+
+	tk, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	tk.Assignee = ""
+	if err = Write(path, tk); err != nil {
+		t.Fatalf("Write() error: %v", err)
+	}
+
+	data, err := os.ReadFile(path) //nolint:gosec // test-owned temporary path
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, comment := range []string{
+		"# integration-owned assignment",
+		"# keep assignment note",
+		frontmatterTrailingComment,
+	} {
+		if !strings.Contains(string(data), comment) {
+			t.Errorf("written task lost %q after removing assignee:\n%s", comment, data)
+		}
+	}
+}
+
+func TestWriteDoesNotMutateSharedRetainedFrontmatter(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+assignee: sample-user # assignment note
+custom_value: retained
+# trailing frontmatter comment
+---
+`)
+
+	loaded, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	withoutAssignee := *loaded
+	withoutAssignee.Assignee = ""
+	if err = Write(filepath.Join(t.TempDir(), "without-assignee.md"), &withoutAssignee); err != nil {
+		t.Fatalf("Write() without assignee error: %v", err)
+	}
+
+	withAssignee := *loaded
+	withAssignee.Priority = "high"
+	outputPath := filepath.Join(t.TempDir(), "with-assignee.md")
+	if err = Write(outputPath, &withAssignee); err != nil {
+		t.Fatalf("Write() shared copy error: %v", err)
+	}
+	data, err := os.ReadFile(outputPath) //nolint:gosec // test-owned temporary path
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"assignee: sample-user # assignment note",
+		"# assignment note",
+		"custom_value: retained",
+		frontmatterTrailingComment,
+	} {
+		if count := strings.Count(string(data), want); count != 1 {
+			t.Errorf("shared retained frontmatter contains %d copies of %q, want 1:\n%s", count, want, data)
 		}
 	}
 }

@@ -73,17 +73,21 @@ func mergeTaskFrontmatter(source, canonical *yaml.Node) *yaml.Node {
 
 	merged := *source
 	merged.Content = make([]*yaml.Node, 0, len(source.Content)+len(canonical.Content))
+	pendingComments := ""
 
 	for i := 0; i < len(source.Content); i += 2 {
 		key := source.Content[i]
 		oldValue := source.Content[i+1]
 		if _, known := knownKeys[key.Value]; !known {
+			key = withLeadingComments(key, pendingComments)
+			pendingComments = ""
 			merged.Content = append(merged.Content, key, oldValue)
 			continue
 		}
 
 		currentValue, present := canonicalPairs[key.Value]
 		if !present {
+			pendingComments = joinYAMLComments(pendingComments, nodeComments(key), nodeComments(oldValue))
 			continue
 		}
 		// The field key gives a top-level value stable identity, so its anchor
@@ -91,9 +95,12 @@ func mergeTaskFrontmatter(source, canonical *yaml.Node) *yaml.Node {
 		// stable key and are matched by semantic value below to prevent an
 		// anchor from moving to a different item after removal.
 		preserveNodePresentation(currentValue, oldValue)
+		key = withLeadingComments(key, pendingComments)
+		pendingComments = ""
 		merged.Content = append(merged.Content, key, currentValue)
 		seen[key.Value] = true
 	}
+	merged.FootComment = joinYAMLComments(pendingComments, merged.FootComment)
 
 	for i := 0; i < len(canonical.Content); i += 2 {
 		key := canonical.Content[i]
@@ -104,6 +111,29 @@ func mergeTaskFrontmatter(source, canonical *yaml.Node) *yaml.Node {
 	}
 
 	return &merged
+}
+
+func nodeComments(node *yaml.Node) string {
+	return joinYAMLComments(node.HeadComment, node.LineComment, node.FootComment)
+}
+
+func withLeadingComments(node *yaml.Node, comments string) *yaml.Node {
+	if comments == "" {
+		return node
+	}
+	clone := *node
+	clone.HeadComment = joinYAMLComments(comments, clone.HeadComment)
+	return &clone
+}
+
+func joinYAMLComments(comments ...string) string {
+	nonEmpty := make([]string, 0, len(comments))
+	for _, comment := range comments {
+		if comment != "" {
+			nonEmpty = append(nonEmpty, comment)
+		}
+	}
+	return strings.Join(nonEmpty, "\n")
 }
 
 func mappingPairsByKey(mapping *yaml.Node) map[string]*yaml.Node {
