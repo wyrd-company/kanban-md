@@ -215,6 +215,57 @@ defaults: &defaults
 	}
 }
 
+func TestWritePreservesKeysThatResolveToStrings(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+key_source: &key custom_alias_key
+*key: alias-key value
+!integration custom_tagged_key: tagged-key value
+custom_mapping:
+  *key: nested alias-key value
+  !integration nested_tagged_key: nested tagged-key value
+---
+`)
+
+	tk, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	if err = Write(path, tk); err != nil {
+		t.Fatalf("Write() error: %v", err)
+	}
+
+	values := readFrontmatterValues(t, path)
+	if got := values["custom_alias_key"]; got != "alias-key value" {
+		t.Errorf("custom_alias_key = %#v, want alias-key value", got)
+	}
+	if got := values["custom_tagged_key"]; got != "tagged-key value" {
+		t.Errorf("custom_tagged_key = %#v, want tagged-key value", got)
+	}
+	wantMapping := map[string]any{
+		"custom_alias_key":  "nested alias-key value",
+		"nested_tagged_key": "nested tagged-key value",
+	}
+	if got := values["custom_mapping"]; !reflect.DeepEqual(got, wantMapping) {
+		t.Errorf("custom_mapping = %#v, want %#v", got, wantMapping)
+	}
+
+	data, err := os.ReadFile(path) //nolint:gosec // test-owned temporary path
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, presentation := range []string{"&key", "*key", "!integration"} {
+		if strings.Contains(string(data), presentation) {
+			t.Errorf("written task retained key presentation %q:\n%s", presentation, data)
+		}
+	}
+}
+
 func TestReadBoundsAdditionalAliasExpansion(t *testing.T) {
 	var content strings.Builder
 	content.WriteString("---\nid: 1\ntitle: Generic sample\nstatus: todo\npriority: medium\n")

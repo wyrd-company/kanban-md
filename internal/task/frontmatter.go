@@ -86,13 +86,14 @@ func validateExtraPropertyNodes(mapping *yaml.Node) error {
 			}
 			continue
 		}
-		if key.Kind != yaml.ScalarNode || key.ShortTag() != yamlStringTag {
+		keyValue, stringKey := resolvedStringKey(key)
+		if !stringKey {
 			return fmt.Errorf("additional frontmatter key at line %d must be a string", key.Line)
 		}
-		if _, known := canonicalTaskYAMLKeys[key.Value]; known {
+		if _, known := canonicalTaskYAMLKeys[keyValue]; known {
 			continue
 		}
-		if err := validateExtraValueNode(mapping.Content[i+1], key.Value, seen); err != nil {
+		if err := validateExtraValueNode(mapping.Content[i+1], keyValue, seen); err != nil {
 			return err
 		}
 	}
@@ -134,18 +135,35 @@ func validateExtraMappingNode(node *yaml.Node, path string, seen map[*yaml.Node]
 			}
 			continue
 		}
-		if key.Kind != yaml.ScalarNode || key.ShortTag() != yamlStringTag {
+		keyValue, stringKey := resolvedStringKey(key)
+		if !stringKey {
 			return fmt.Errorf(
 				"additional frontmatter property %s has a non-string mapping key at line %d",
 				path,
 				key.Line,
 			)
 		}
-		if err := validateExtraValueNode(node.Content[i+1], path+"."+key.Value, seen); err != nil {
+		if err := validateExtraValueNode(node.Content[i+1], path+"."+keyValue, seen); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func resolvedStringKey(node *yaml.Node) (string, bool) {
+	seen := make(map[*yaml.Node]bool)
+	for node != nil && node.Kind == yaml.AliasNode {
+		if seen[node] {
+			return "", false
+		}
+		seen[node] = true
+		node = node.Alias
+	}
+	if node == nil || node.Kind != yaml.ScalarNode {
+		return "", false
+	}
+	tag := node.ShortTag()
+	return node.Value, tag == yamlStringTag || tag != "" && !strings.HasPrefix(tag, "!!")
 }
 
 func normalizeQuotedMergeKeys(node *yaml.Node, seen map[*yaml.Node]bool) {
