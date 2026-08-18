@@ -8,6 +8,7 @@ package task
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -18,11 +19,15 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-const frontmatterTestStatus = "todo"
+const (
+	frontmatterTestReference = "sample-17"
+	frontmatterTestStatus    = "todo"
+)
 
 func TestWritePreservesAdditionalSemanticValues(t *testing.T) {
 	path := writeRawTask(t, `---
 custom_scalar: !integration 001 # presentation is not retained
+custom_binary: !!binary aGVsbG8=
 id: 1
 title: &canonical Generic sample
 status: todo
@@ -60,6 +65,9 @@ Body
 	if got := values["custom_scalar"]; got != "001" {
 		t.Errorf("custom_scalar = %#v, want %q", got, "001")
 	}
+	if got := values["custom_binary"]; got != "hello" {
+		t.Errorf("custom_binary = %#v, want decoded scalar value", got)
+	}
 	wantSequence := []any{"alpha", "alpha", 3, true, nil}
 	if got := values["custom_sequence"]; !reflect.DeepEqual(got, wantSequence) {
 		t.Errorf("custom_sequence = %#v, want %#v", got, wantSequence)
@@ -86,7 +94,7 @@ Body
 		t.Fatal(err)
 	}
 	for _, presentation := range []string{
-		"!integration", "# presentation", "&item", "*item", "&canonical", "&defaults", "*defaults",
+		"!integration", "!!binary", "# presentation", "&item", "*item", "&canonical", "&defaults", "*defaults",
 	} {
 		if strings.Contains(string(data), presentation) {
 			t.Errorf("written task retained YAML presentation %q:\n%s", presentation, data)
@@ -128,7 +136,8 @@ custom_copy: *shared
 func TestWriteMaterializesTopLevelMergeValues(t *testing.T) {
 	path := writeRawTask(t, `---
 defaults: &defaults
-  external_reference: sample-17
+  external_reference: merged
+  merged_reference: sample-17
 <<: *defaults
 id: 1
 title: Generic sample
@@ -136,6 +145,7 @@ status: todo
 priority: medium
 created: 2026-08-12T10:00:00Z
 updated: 2026-08-12T10:00:00Z
+external_reference: explicit
 ---
 `)
 
@@ -149,8 +159,11 @@ updated: 2026-08-12T10:00:00Z
 	}
 
 	values := readFrontmatterValues(t, path)
-	if got := values["external_reference"]; got != "sample-17" {
-		t.Errorf("external_reference = %#v, want materialized merge value", got)
+	if got := values["merged_reference"]; got != frontmatterTestReference {
+		t.Errorf("merged_reference = %#v, want materialized merge value", got)
+	}
+	if got := values["external_reference"]; got != "explicit" {
+		t.Errorf("external_reference = %#v, want explicit value to override merged value", got)
 	}
 	data, err := os.ReadFile(path) //nolint:gosec // test-owned temporary path
 	if err != nil {
@@ -160,6 +173,68 @@ updated: 2026-08-12T10:00:00Z
 		if strings.Contains(string(data), presentation) {
 			t.Errorf("written task retained YAML merge presentation %q:\n%s", presentation, data)
 		}
+	}
+}
+
+func TestWritePreservesQuotedMergeKeyAcrossRepeatedWrites(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+defaults: &defaults
+  external_reference: sample-17
+"<<": *defaults
+---
+`)
+
+	for i := 0; i < 2; i++ {
+		tk, err := Read(path)
+		if err != nil {
+			t.Fatalf("Read() cycle %d error: %v", i+1, err)
+		}
+		tk.Priority = "high"
+		if err = Write(path, tk); err != nil {
+			t.Fatalf("Write() cycle %d error: %v", i+1, err)
+		}
+	}
+
+	values := readFrontmatterValues(t, path)
+	want := map[string]any{"external_reference": "sample-17"}
+	if got := values["<<"]; !reflect.DeepEqual(got, want) {
+		t.Errorf("quoted merge-key property = %#v, want %#v", got, want)
+	}
+	if _, merged := values["external_reference"]; merged {
+		t.Errorf("quoted merge-key property was hoisted into the task: %#v", values)
+	}
+}
+
+func TestReadBoundsAdditionalAliasExpansion(t *testing.T) {
+	var content strings.Builder
+	content.WriteString("---\nid: 1\ntitle: Generic sample\nstatus: todo\npriority: medium\n")
+	content.WriteString("created: 2026-08-12T10:00:00Z\nupdated: 2026-08-12T10:00:00Z\ncustom:\n")
+	content.WriteString("  - &a0 [x, x]\n")
+	for i := 1; i <= 24; i++ {
+		fmt.Fprintf(&content, "  - &a%d [*a%d, *a%d]\n", i, i-1, i-1)
+	}
+	content.WriteString("---\n")
+	path := writeRawTask(t, content.String())
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := Read(path)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "excessive aliasing") {
+			t.Fatalf("Read() error = %v, want bounded excessive-aliasing error", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Read() did not bound additional-property alias expansion")
 	}
 }
 
@@ -220,6 +295,27 @@ custom_mapping:
 	}
 }
 
+func TestReadRejectsAdditionalPropertyWithNonStringKey(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+1: unsupported
+---
+`)
+
+	_, err := Read(path)
+	if err == nil {
+		t.Fatal("Read() accepted an additional property with a non-string key")
+	}
+	if !strings.Contains(err.Error(), "key at line 7 must be a string") {
+		t.Fatalf("Read() error = %v, want location and supported boundary", err)
+	}
+}
+
 func TestInMemoryTaskKeepsCanonicalYAMLAndAdditionalPropertiesOutOfJSON(t *testing.T) {
 	now := time.Date(2026, time.August, 12, 10, 0, 0, 0, time.UTC)
 	tk := &Task{
@@ -263,6 +359,13 @@ custom_value: retained
 	}
 	if strings.Contains(string(encoded), "custom_value") || strings.Contains(string(encoded), "extraProperties") {
 		t.Errorf("JSON exposed additional frontmatter: %s", encoded)
+	}
+	valueYAML, err := yaml.Marshal(*loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(valueYAML), "custom_value: retained") {
+		t.Errorf("marshaling a Task value dropped additional frontmatter:\n%s", valueYAML)
 	}
 }
 

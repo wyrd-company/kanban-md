@@ -22,8 +22,8 @@ The accepted boundary is semantic YAML values:
   string-keyed maps;
 - keep kanban-md fields typed and authoritative;
 - reserialize the complete front matter as YAML after a mutation; and
-- do not preserve formatting, comments, key order, anchors, aliases, or custom
-  tags.
+- do not preserve formatting, comments, key order, anchors, aliases, or
+  explicit tags.
 
 Unknown properties remain file-only. Table, compact, and JSON output continue
 to expose only the typed task contract.
@@ -69,7 +69,9 @@ no additional values and produces the same canonical YAML as before.
 This design retains values rather than syntax nodes. YAML aliases are decoded
 to their referenced values before storage. Encoding therefore cannot create an
 orphan alias when a canonical field is removed. Comments, anchors, tags,
-styles, and source order have no retained representation.
+styles, and source order have no retained representation. Explicitly tagged
+scalars retain the value decoded by the YAML library and are re-encoded with
+the default tag for that value.
 
 ## Validation boundary
 

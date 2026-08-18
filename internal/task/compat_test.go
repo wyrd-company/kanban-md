@@ -255,7 +255,7 @@ func TestCompatV1TaskPreservesUnknownProperties(t *testing.T) {
 	}
 
 	values := readFrontmatterValues(t, outputPath)
-	want := map[string]any{"reference": "sample-17"}
+	want := map[string]any{"reference": frontmatterTestReference}
 	for _, property := range []string{"custom_source", "custom_copy"} {
 		if got := values[property]; !reflect.DeepEqual(got, want) {
 			t.Errorf("%s = %#v, want %#v", property, got, want)
