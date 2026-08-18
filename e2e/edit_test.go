@@ -117,6 +117,126 @@ func TestEditTitleRename(t *testing.T) {
 	}
 }
 
+func TestMutationsPreserveUnknownFrontmatter(t *testing.T) {
+	kanbanDir := initBoard(t)
+	created := mustCreateTask(t, kanbanDir, "Generic sample")
+	data, err := os.ReadFile(created.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	closing := strings.LastIndex(content, "---\n")
+	if closing <= 0 {
+		t.Fatalf("task has no closing frontmatter delimiter:\n%s", content)
+	}
+	content = content[:closing] + "custom_value: retained\n" + content[closing:]
+	if err = os.WriteFile(created.File, []byte(content), 0o600); err != nil { //nolint:gosec,nolintlint // test binary returned this task path
+		t.Fatal(err)
+	}
+
+	const listCommand = "list"
+	for _, args := range [][]string{
+		{listCommand},
+		{"--compact", listCommand},
+	} {
+		r := runKanban(t, kanbanDir, args...)
+		if r.exitCode != 0 {
+			t.Fatalf("%v failed: %s", args, r.stderr)
+		}
+		if strings.Contains(r.stdout, "custom_value") || strings.Contains(r.stdout, "retained") {
+			t.Errorf("%v exposed custom frontmatter:\n%s", args, r.stdout)
+		}
+	}
+
+	var edited taskJSON
+	r := runKanbanJSON(t, kanbanDir, &edited, "edit", "1", "--title", "Changed sample")
+	if r.exitCode != 0 {
+		t.Fatalf("edit failed: %s", r.stderr)
+	}
+	assertCustomValuePreserved(t, edited.File)
+
+	r = runKanban(t, kanbanDir, "move", "1", statusTodo)
+	if r.exitCode != 0 {
+		t.Fatalf("move failed: %s", r.stderr)
+	}
+	assertCustomValuePreserved(t, edited.File)
+
+	r = runKanban(t, kanbanDir, "pick", "--claim", claimTestAgent, "--status", statusTodo, "--no-body")
+	if r.exitCode != 0 {
+		t.Fatalf("pick failed: %s", r.stderr)
+	}
+	assertCustomValuePreserved(t, edited.File)
+
+	r = runKanban(t, kanbanDir, "handoff", "1", "--claim", claimTestAgent, "--note", "Ready for review")
+	if r.exitCode != 0 {
+		t.Fatalf("handoff failed: %s", r.stderr)
+	}
+	assertCustomValuePreserved(t, edited.File)
+
+	r = runKanban(t, kanbanDir, "archive", "1", "--claim", claimTestAgent)
+	if r.exitCode != 0 {
+		t.Fatalf("archive failed: %s", r.stderr)
+	}
+	assertCustomValuePreserved(t, edited.File)
+}
+
+func TestReleaseMaterializesUnknownAliasToRemovedCanonicalField(t *testing.T) {
+	kanbanDir := initBoard(t)
+	created := mustCreateTask(t, kanbanDir, "Generic sample")
+	r := runKanban(t, kanbanDir, "edit", "1", "--claim", claimTestAgent)
+	if r.exitCode != 0 {
+		t.Fatalf("claim failed: %s", r.stderr)
+	}
+
+	data, err := os.ReadFile(created.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := strings.Replace(
+		string(data),
+		"claimed_by: "+claimTestAgent,
+		"claimed_by: &shared "+claimTestAgent+"\ncustom_copy: *shared",
+		1,
+	)
+	if content == string(data) {
+		t.Fatalf("claimed task does not contain claimed_by:\n%s", data)
+	}
+	if err = os.Chmod(created.File, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(created.File, []byte(content), 0o600); err != nil { //nolint:gosec,nolintlint // test binary returned this task path
+		t.Fatal(err)
+	}
+	r = runKanban(t, kanbanDir, "edit", "1", "--release")
+	if r.exitCode != 0 {
+		t.Fatalf("release failed: %s", r.stderr)
+	}
+	after, err := os.ReadFile(created.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after), "custom_copy: "+claimTestAgent) {
+		t.Errorf("release did not retain the materialized alias value:\n%s", after)
+	}
+	for _, presentation := range []string{"claimed_by:", "&shared", "*shared"} {
+		if strings.Contains(string(after), presentation) {
+			t.Errorf("release retained %q after reserializing frontmatter:\n%s", presentation, after)
+		}
+	}
+}
+
+func assertCustomValuePreserved(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path) //nolint:gosec // test helper receives a task path from the test binary
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "custom_value: retained"
+	if !strings.Contains(string(data), want) {
+		t.Errorf("%s does not contain %q:\n%s", path, want, data)
+	}
+}
+
 func TestEditNoChanges(t *testing.T) {
 	kanbanDir := initBoard(t)
 	mustCreateTask(t, kanbanDir, "Stable task")

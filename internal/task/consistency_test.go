@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,41 @@ func TestEnsureConsistency_RepairsDuplicateMismatchAndNextID(t *testing.T) {
 	}
 	if len(report.Repairs) != 0 {
 		t.Fatalf("repairs on second run = %d, want 0", len(report.Repairs))
+	}
+}
+
+func TestEnsureConsistencyPreservesUnknownFrontmatter(t *testing.T) {
+	kanbanDir := t.TempDir()
+	cfg := config.NewDefault("Generic sample")
+	cfg.SetDir(kanbanDir)
+	if err := os.MkdirAll(cfg.TasksPath(), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(cfg.TasksPath(), "099-mismatch.md")
+	content := `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+custom_value: retained
+---
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := EnsureConsistency(cfg); err != nil {
+		t.Fatalf("EnsureConsistency() error: %v", err)
+	}
+	repairedPath := filepath.Join(cfg.TasksPath(), "001-generic-sample.md")
+	data, err := os.ReadFile(repairedPath) //nolint:gosec // test-owned temporary path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "custom_value: retained") {
+		t.Errorf("consistency repair lost custom_value:\n%s", data)
 	}
 }
 
