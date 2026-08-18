@@ -1,7 +1,6 @@
 package e2e_test
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -181,7 +180,7 @@ func TestMutationsPreserveUnknownFrontmatter(t *testing.T) {
 	assertCustomValuePreserved(t, edited.File)
 }
 
-func TestReleaseRefusesToOrphanUnknownAlias(t *testing.T) {
+func TestReleaseMaterializesUnknownAliasToRemovedCanonicalField(t *testing.T) {
 	kanbanDir := initBoard(t)
 	created := mustCreateTask(t, kanbanDir, "Generic sample")
 	r := runKanban(t, kanbanDir, "edit", "1", "--claim", claimTestAgent)
@@ -208,21 +207,21 @@ func TestReleaseRefusesToOrphanUnknownAlias(t *testing.T) {
 	if err = os.WriteFile(created.File, []byte(content), 0o600); err != nil { //nolint:gosec,nolintlint // test binary returned this task path
 		t.Fatal(err)
 	}
-	before := []byte(content)
-
 	r = runKanban(t, kanbanDir, "edit", "1", "--release")
-	if r.exitCode == 0 {
-		t.Fatal("release succeeded after removing an anchor used by an unknown alias")
-	}
-	if !strings.Contains(r.stderr, created.File) || !strings.Contains(r.stderr, "inline or remove the alias") {
-		t.Fatalf("release error does not identify the file and remedy: %s", r.stderr)
+	if r.exitCode != 0 {
+		t.Fatalf("release failed: %s", r.stderr)
 	}
 	after, err := os.ReadFile(created.File)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(after, before) {
-		t.Errorf("release changed the file after frontmatter validation failed:\n%s", after)
+	if !strings.Contains(string(after), "custom_copy: "+claimTestAgent) {
+		t.Errorf("release did not retain the materialized alias value:\n%s", after)
+	}
+	for _, presentation := range []string{"claimed_by:", "&shared", "*shared"} {
+		if strings.Contains(string(after), presentation) {
+			t.Errorf("release retained %q after reserializing frontmatter:\n%s", presentation, after)
+		}
 	}
 }
 

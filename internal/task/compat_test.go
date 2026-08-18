@@ -2,9 +2,8 @@ package task
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
-
-	"go.yaml.in/yaml/v3"
 )
 
 const v1FixtureDir = "testdata/compat/v1/tasks"
@@ -255,14 +254,12 @@ func TestCompatV1TaskPreservesUnknownProperties(t *testing.T) {
 		t.Fatalf("Write() v1 task with extra properties: %v", err)
 	}
 
-	mapping := readFrontmatterNode(t, outputPath)
-	customSource := mappingValue(t, mapping, "custom_source")
-	if customSource.Anchor != "source" {
-		t.Errorf("custom_source anchor = %q, want source", customSource.Anchor)
-	}
-	customCopy := mappingValue(t, mapping, "custom_copy")
-	if customCopy.Kind != yaml.AliasNode || customCopy.Value != "source" {
-		t.Errorf("custom_copy = kind %d value %q, want alias source", customCopy.Kind, customCopy.Value)
+	values := readFrontmatterValues(t, outputPath)
+	want := map[string]any{"reference": "sample-17"}
+	for _, property := range []string{"custom_source", "custom_copy"} {
+		if got := values[property]; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s = %#v, want %#v", property, got, want)
+		}
 	}
 }
 

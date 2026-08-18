@@ -48,14 +48,6 @@ func Write(path string, t *Task) error {
 	if err != nil {
 		return fmt.Errorf("marshaling frontmatter: %w", err)
 	}
-	var validated yaml.Node
-	if err = yaml.Unmarshal(fm, &validated); err != nil {
-		return fmt.Errorf(
-			"validating frontmatter for %s: %w; an unrecognized property may alias a kanban-md field this change removed; inline or remove the alias before retrying",
-			path,
-			err,
-		)
-	}
 
 	var buf bytes.Buffer
 	buf.WriteString("---\n")

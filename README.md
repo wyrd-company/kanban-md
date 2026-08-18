@@ -160,15 +160,14 @@ tags:
 Optional body with more detail, context, or notes.
 ```
 
-When kanban-md updates a task, it preserves unrecognized YAML frontmatter
-properties, including nested values, tags, comments, anchors, and aliases. This
+When kanban-md updates a task, it preserves the values of unrecognized YAML
+frontmatter properties composed of scalars, lists, and string-keyed maps. This
 lets other tools store their own metadata without kanban-md deleting it. These
 properties remain file-only and are not added to table, compact, or JSON output.
-If a property aliases an anchor on a kanban-md field and a mutation removes that
-anchor, kanban-md refuses the write and leaves the file unchanged. Inline or
-remove the alias before retrying the mutation.
-When a kanban-md field keeps its key but changes value, aliases to that field's
-anchor follow the new value.
+
+kanban-md reserializes frontmatter as YAML after an update. Formatting,
+comments, key order, anchors, aliases, and custom tags are not preserved.
+Aliases are retained as their decoded values.
 
 The `config.yml` tracks board settings:
 
