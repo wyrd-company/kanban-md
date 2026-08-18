@@ -78,6 +78,7 @@ func decodeExtraProperties(mapping *yaml.Node) (map[string]any, error) {
 
 func validateExtraPropertyNodes(mapping *yaml.Node) error {
 	seen := make(map[*yaml.Node]bool)
+	resolvedKeys := make(map[string]int)
 	for i := 0; i < len(mapping.Content); i += 2 {
 		key := mapping.Content[i]
 		if isYAMLMergeKey(key) {
@@ -89,6 +90,9 @@ func validateExtraPropertyNodes(mapping *yaml.Node) error {
 		keyValue, stringKey := resolvedStringKey(key)
 		if !stringKey {
 			return fmt.Errorf("additional frontmatter key at line %d must be a string", key.Line)
+		}
+		if err := recordResolvedKey(resolvedKeys, keyValue, key.Line); err != nil {
+			return err
 		}
 		if _, known := canonicalTaskYAMLKeys[keyValue]; known {
 			continue
@@ -127,6 +131,7 @@ func validateExtraValueNode(node *yaml.Node, path string, seen map[*yaml.Node]bo
 }
 
 func validateExtraMappingNode(node *yaml.Node, path string, seen map[*yaml.Node]bool) error {
+	resolvedKeys := make(map[string]int)
 	for i := 0; i < len(node.Content); i += 2 {
 		key := node.Content[i]
 		if isYAMLMergeKey(key) {
@@ -143,10 +148,21 @@ func validateExtraMappingNode(node *yaml.Node, path string, seen map[*yaml.Node]
 				key.Line,
 			)
 		}
+		if err := recordResolvedKey(resolvedKeys, keyValue, key.Line); err != nil {
+			return fmt.Errorf("additional frontmatter property %s: %w", path, err)
+		}
 		if err := validateExtraValueNode(node.Content[i+1], path+"."+keyValue, seen); err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+func recordResolvedKey(resolvedKeys map[string]int, key string, line int) error {
+	if firstLine, exists := resolvedKeys[key]; exists {
+		return fmt.Errorf("mapping key %q at line %d resolves to a duplicate of line %d", key, line, firstLine)
+	}
+	resolvedKeys[key] = line
 	return nil
 }
 

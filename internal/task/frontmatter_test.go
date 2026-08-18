@@ -447,6 +447,57 @@ updated: 2026-08-12T10:00:00Z
 	}
 }
 
+func TestReadRejectsDuplicateKeysAfterStringResolution(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+key_source: &key custom_value
+custom_value: first
+*key: second
+---
+`)
+
+	_, err := Read(path)
+	if err == nil {
+		t.Fatal("Read() accepted duplicate keys after resolving an alias-backed key")
+	}
+	for _, want := range []string{"custom_value", "line 9", "line 8"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Read() error = %v, want duplicate key and both source lines", err)
+		}
+	}
+}
+
+func TestReadRejectsNestedDuplicateKeysAfterStringResolution(t *testing.T) {
+	path := writeRawTask(t, `---
+id: 1
+title: Generic sample
+status: todo
+priority: medium
+created: 2026-08-12T10:00:00Z
+updated: 2026-08-12T10:00:00Z
+key_source: &key custom_value
+custom_mapping:
+  custom_value: first
+  *key: second
+---
+`)
+
+	_, err := Read(path)
+	if err == nil {
+		t.Fatal("Read() accepted nested duplicate keys after resolving an alias-backed key")
+	}
+	for _, want := range []string{"custom_mapping", "custom_value", "line 10", "line 9"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Read() error = %v, want property path, duplicate key, and both source lines", err)
+		}
+	}
+}
+
 func writeRawTask(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "001-generic-sample.md")
