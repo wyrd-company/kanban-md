@@ -179,6 +179,57 @@ func TestPickWithMultipleTagFilter(t *testing.T) {
 	}
 }
 
+func TestPickWithParentFilter(t *testing.T) {
+	cfg := newPickTestConfig()
+	p1, p2 := 10, 20
+	tasks := []*task.Task{
+		{ID: 1, Status: "todo", Priority: "critical"},
+		{ID: 2, Status: "todo", Priority: "high", Parent: &p1},
+		{ID: 3, Status: "todo", Priority: "critical", Parent: &p2},
+	}
+
+	parent := 10
+	picked := Pick(cfg, tasks, PickOptions{Parent: &parent})
+	if picked == nil {
+		t.Fatal("Pick() returned nil, want task #2")
+	}
+	if picked.ID != 2 {
+		t.Errorf("Pick() ID = %d, want 2 (parent filter)", picked.ID)
+	}
+}
+
+func TestPickWithParentFilterNoMatch(t *testing.T) {
+	cfg := newPickTestConfig()
+	p1 := 10
+	tasks := []*task.Task{
+		{ID: 1, Status: "todo", Priority: "critical"},
+		{ID: 2, Status: "todo", Priority: "high", Parent: &p1},
+	}
+
+	parent := 99
+	if picked := Pick(cfg, tasks, PickOptions{Parent: &parent}); picked != nil {
+		t.Errorf("Pick() ID = %d, want nil (no child of parent 99)", picked.ID)
+	}
+}
+
+func TestPickWithParentAndTagFilter(t *testing.T) {
+	cfg := newPickTestConfig()
+	p1 := 10
+	tasks := []*task.Task{
+		{ID: 1, Status: "todo", Priority: "critical", Parent: &p1, Tags: []string{"backend"}},
+		{ID: 2, Status: "todo", Priority: "high", Parent: &p1, Tags: []string{"frontend"}},
+	}
+
+	parent := 10
+	picked := Pick(cfg, tasks, PickOptions{Parent: &parent, Tags: []string{"frontend"}})
+	if picked == nil {
+		t.Fatal("Pick() returned nil, want task #2")
+	}
+	if picked.ID != 2 {
+		t.Errorf("Pick() ID = %d, want 2 (parent+tag filter)", picked.ID)
+	}
+}
+
 func TestPickExpediteBeforeStandard(t *testing.T) {
 	cfg := newPickTestConfig()
 	tasks := []*task.Task{

@@ -418,6 +418,7 @@ Atomically find and claim the next available task. Designed for multi-agent work
 kanban-md pick --claim agent-1
 kanban-md pick --claim agent-1 --status todo --move in-progress
 kanban-md pick --claim agent-1 --tags backend
+kanban-md pick --claim agent-1 --parent 42
 kanban-md pick --claim agent-1 --no-body
 ```
 
@@ -427,6 +428,7 @@ kanban-md pick --claim agent-1 --no-body
 | `--status` | all non-terminal | Source status(es) to pick from (comma-separated) |
 | `--move` | | Also move picked task to this status |
 | `--tags` | | Only pick tasks matching at least one tag |
+| `--parent` | | Only pick tasks that are children of this parent task ID |
 | `--no-body` | false | Show only the pick confirmation line (skip full task details) |
 
 By default, `pick` prints the one-line confirmation and then the full task details (same as `show`, including body) so agents do not need a follow-up `show` command.

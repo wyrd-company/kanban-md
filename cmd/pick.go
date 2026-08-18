@@ -26,6 +26,7 @@ func init() {
 	pickCmd.Flags().String("status", "", "status column to pick from (default: all non-terminal)")
 	pickCmd.Flags().String("move", "", "also move the picked task to this status")
 	pickCmd.Flags().StringSlice("tags", nil, "filter by tags (comma-separated, OR logic)")
+	pickCmd.Flags().Int("parent", 0, "filter to children of this parent task ID")
 	pickCmd.Flags().Bool("no-body", false, "suppress full task details after pick")
 	_ = pickCmd.MarkFlagRequired("claim")
 	rootCmd.AddCommand(pickCmd)
@@ -43,11 +44,17 @@ func runPick(cmd *cobra.Command, _ []string) error {
 	tags, _ := cmd.Flags().GetStringSlice("tags")
 	noBody, _ := cmd.Flags().GetBool("no-body")
 
+	var parent *int
+	if cmd.Flags().Changed("parent") {
+		v, _ := cmd.Flags().GetInt("parent")
+		parent = &v
+	}
+
 	if err = validatePickFlags(cfg, statusFilter, moveTarget); err != nil {
 		return err
 	}
 
-	picked, oldStatus, err := executePick(cfg, claimant, statusFilter, moveTarget, tags)
+	picked, oldStatus, err := executePick(cfg, claimant, statusFilter, moveTarget, tags, parent)
 	if err != nil {
 		return err
 	}
@@ -69,12 +76,13 @@ func validatePickFlags(cfg *config.Config, statusFilter, moveTarget string) erro
 	return nil
 }
 
-func executePick(cfg *config.Config, claimant, statusFilter, moveTarget string, tags []string) (*task.Task, string, error) {
+func executePick(cfg *config.Config, claimant, statusFilter, moveTarget string, tags []string, parent *int) (*task.Task, string, error) {
 	params := board.PickAndClaimParams{
 		Claimant:     claimant,
 		StatusFilter: statusFilter,
 		MoveTarget:   moveTarget,
 		Tags:         tags,
+		Parent:       parent,
 	}
 
 	picked, oldStatus, warnings, err := board.PickAndClaim(cfg, params, time.Now())

@@ -454,7 +454,7 @@ func TestExecutePick_NoCandidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	// No tasks created — nothing to pick.
-	_, _, err = executePick(cfg, "agent", "", "", nil)
+	_, _, err = executePick(cfg, "agent", "", "", nil, nil)
 	if err == nil {
 		t.Fatal("expected error when nothing to pick")
 	}
@@ -475,7 +475,7 @@ func TestExecutePick_Success(t *testing.T) {
 	}
 	createTaskFileWithStatus(t, cfg.TasksPath(), 1, "pickable-task", "backlog")
 
-	picked, oldStatus, pickErr := executePick(cfg, "test-agent", "", "", nil)
+	picked, oldStatus, pickErr := executePick(cfg, "test-agent", "", "", nil, nil)
 	if pickErr != nil {
 		t.Fatalf("executePick error: %v", pickErr)
 	}
@@ -498,7 +498,7 @@ func TestExecutePick_WithMove(t *testing.T) {
 	}
 	createTaskFileWithStatus(t, cfg.TasksPath(), 1, "pick-and-move", "backlog")
 
-	picked, oldStatus, pickErr := executePick(cfg, "test-agent", "", "todo", nil)
+	picked, oldStatus, pickErr := executePick(cfg, "test-agent", "", "todo", nil, nil)
 	if pickErr != nil {
 		t.Fatalf("executePick error: %v", pickErr)
 	}
@@ -518,7 +518,7 @@ func TestExecutePick_MoveIdempotent(t *testing.T) {
 	}
 	createTaskFileWithStatus(t, cfg.TasksPath(), 1, "already-there", "todo")
 
-	picked, oldStatus, pickErr := executePick(cfg, "test-agent", "", "todo", nil)
+	picked, oldStatus, pickErr := executePick(cfg, "test-agent", "", "todo", nil, nil)
 	if pickErr != nil {
 		t.Fatalf("executePick error: %v", pickErr)
 	}
@@ -541,7 +541,7 @@ func TestExecutePick_StatusFilter(t *testing.T) {
 	createTaskFileWithStatus(t, cfg.TasksPath(), 2, "in-todo", "todo")
 
 	// Pick only from "todo" — should pick task #2.
-	picked, _, pickErr := executePick(cfg, "test-agent", "todo", "", nil)
+	picked, _, pickErr := executePick(cfg, "test-agent", "todo", "", nil, nil)
 	if pickErr != nil {
 		t.Fatalf("executePick error: %v", pickErr)
 	}
@@ -568,7 +568,7 @@ func TestExecutePick_WIPViolationOnMove(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, err = executePick(cfg, "test-agent", "backlog", "todo", nil)
+	_, _, err = executePick(cfg, "test-agent", "backlog", "todo", nil, nil)
 	if err == nil {
 		t.Fatal("expected WIP limit error on move")
 	}

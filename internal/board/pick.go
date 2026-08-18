@@ -13,6 +13,7 @@ type PickOptions struct {
 	Statuses     []string      // status columns to pick from (empty = all non-terminal)
 	ClaimTimeout time.Duration // claim expiration for filtering
 	Tags         []string      // optional tag filter (OR logic: task must have at least one)
+	Parent       *int          // optional parent filter (only children of this task ID)
 }
 
 // Pick finds the highest-priority unclaimed, unblocked task matching criteria.
@@ -48,6 +49,9 @@ func pickCandidates(cfg *config.Config, tasks []*task.Task, opts PickOptions) []
 			continue
 		}
 		if len(opts.Tags) > 0 && !hasAnyTag(t.Tags, opts.Tags) {
+			continue
+		}
+		if opts.Parent != nil && (t.Parent == nil || *t.Parent != *opts.Parent) {
 			continue
 		}
 		candidates = append(candidates, t)

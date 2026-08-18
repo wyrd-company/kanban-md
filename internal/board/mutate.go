@@ -588,6 +588,7 @@ type PickAndClaimParams struct {
 	StatusFilter string
 	MoveTarget   string
 	Tags         []string
+	Parent       *int
 }
 
 // PickAndClaim finds the highest-priority task and atomically claims it. Any
@@ -616,6 +617,7 @@ func PickAndClaim(cfg *config.Config, params PickAndClaimParams, now time.Time) 
 	opts := PickOptions{
 		ClaimTimeout: cfg.ClaimTimeoutDuration(),
 		Tags:         params.Tags,
+		Parent:       params.Parent,
 	}
 	if params.StatusFilter != "" {
 		opts.Statuses = []string{params.StatusFilter}

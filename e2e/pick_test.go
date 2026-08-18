@@ -72,6 +72,22 @@ func TestPickWithTagFilter(t *testing.T) {
 	}
 }
 
+func TestPickWithParentFilter(t *testing.T) {
+	kanbanDir := initBoard(t)
+	mustCreateTask(t, kanbanDir, "Parent task")
+	mustCreateTask(t, kanbanDir, "Orphan task")
+	mustCreateTask(t, kanbanDir, "Child task", "--parent", "1")
+
+	var picked taskJSON
+	r := runKanbanJSON(t, kanbanDir, &picked, "pick", "--claim", claimAgent1, "--parent", "1")
+	if r.exitCode != 0 {
+		t.Fatalf("pick --parent failed (exit %d): %s", r.exitCode, r.stderr)
+	}
+	if picked.Title != "Child task" {
+		t.Errorf("picked title = %q, want %q", picked.Title, "Child task")
+	}
+}
+
 func TestPickNothingAvailable(t *testing.T) {
 	kanbanDir := initBoard(t)
 
