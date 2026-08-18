@@ -28,6 +28,7 @@ func TestWritePreservesAdditionalSemanticValues(t *testing.T) {
 	path := writeRawTask(t, `---
 custom_scalar: !integration 001 # presentation is not retained
 custom_binary: !!binary aGVsbG8=
+custom_float: 2.0
 id: 1
 title: &canonical Generic sample
 status: todo
@@ -67,6 +68,9 @@ Body
 	}
 	if got := values["custom_binary"]; got != "hello" {
 		t.Errorf("custom_binary = %#v, want decoded scalar value", got)
+	}
+	if got := values["custom_float"]; got != float64(2) {
+		t.Errorf("custom_float = %#v (%T), want float64(2)", got, got)
 	}
 	wantSequence := []any{"alpha", "alpha", 3, true, nil}
 	if got := values["custom_sequence"]; !reflect.DeepEqual(got, wantSequence) {
@@ -282,7 +286,8 @@ priority: medium
 created: 2026-08-12T10:00:00Z
 updated: 2026-08-12T10:00:00Z
 custom_mapping:
-  1: unsupported
+  nested:
+    1: unsupported
 ---
 `)
 
@@ -290,8 +295,9 @@ custom_mapping:
 	if err == nil {
 		t.Fatal("Read() accepted an additional mapping with a non-string key")
 	}
-	if !strings.Contains(err.Error(), "custom_mapping") || !strings.Contains(err.Error(), "string keys") {
-		t.Fatalf("Read() error = %v, want property name and supported boundary", err)
+	if !strings.Contains(err.Error(), "custom_mapping.nested") ||
+		!strings.Contains(err.Error(), "non-string mapping key at line 9") {
+		t.Fatalf("Read() error = %v, want property path, location, and supported boundary", err)
 	}
 }
 

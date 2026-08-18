@@ -9,8 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
-	"time"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -62,79 +62,90 @@ func (t Task) MarshalYAML() (any, error) {
 }
 
 func decodeExtraProperties(mapping *yaml.Node) (map[string]any, error) {
-	extra := make(map[string]any)
-	hasMerge := false
-	for i := 0; i < len(mapping.Content); i += 2 {
-		key := mapping.Content[i]
-		if isYAMLMergeKey(key) {
-			hasMerge = true
-			continue
-		}
-		if key.Kind != yaml.ScalarNode || key.ShortTag() != yamlStringTag {
-			return nil, fmt.Errorf("additional frontmatter key at line %d must be a string", key.Line)
-		}
-		if _, known := canonicalTaskYAMLKeys[key.Value]; known {
-			continue
-		}
-
-		decoded, err := decodeExtraValue(mapping.Content[i+1])
-		if err != nil {
-			return nil, fmt.Errorf("additional frontmatter property %q: %w", key.Value, err)
-		}
-		extra[key.Value] = decoded
-	}
-	if hasMerge {
-		var merged map[string]any
-		if err := mapping.Decode(&merged); err != nil {
-			return nil, fmt.Errorf("decoding merged task frontmatter: %w", err)
-		}
-		for key, value := range merged {
-			if _, known := canonicalTaskYAMLKeys[key]; known {
-				continue
-			}
-			if err := validateExtraValue(value); err != nil {
-				return nil, fmt.Errorf("additional merged frontmatter property %q: %w", key, err)
-			}
-			extra[key] = value
-		}
-	}
-	return extra, nil
-}
-
-func decodeExtraValue(node *yaml.Node) (any, error) {
-	var decoded any
-	if err := node.Decode(&decoded); err != nil {
-		return nil, fmt.Errorf("decoding value: %w", err)
-	}
-	if err := validateExtraValue(decoded); err != nil {
+	if err := validateExtraPropertyNodes(mapping); err != nil {
 		return nil, err
+	}
+
+	var decoded map[string]any
+	if err := mapping.Decode(&decoded); err != nil {
+		return nil, fmt.Errorf("decoding task frontmatter values: %w", err)
+	}
+	for key := range canonicalTaskYAMLKeys {
+		delete(decoded, key)
 	}
 	return decoded, nil
 }
 
-func validateExtraValue(value any) error {
-	switch typed := value.(type) {
-	case nil, string, bool, int, int64, uint64, float64, time.Time:
-		return nil
-	case []any:
-		for _, item := range typed {
-			if err := validateExtraValue(item); err != nil {
+func validateExtraPropertyNodes(mapping *yaml.Node) error {
+	seen := make(map[*yaml.Node]bool)
+	for i := 0; i < len(mapping.Content); i += 2 {
+		key := mapping.Content[i]
+		if isYAMLMergeKey(key) {
+			if err := validateExtraValueNode(mapping.Content[i+1], "<merge>", seen); err != nil {
 				return err
 			}
+			continue
 		}
-		return nil
-	case map[string]any:
-		for _, item := range typed {
-			if err := validateExtraValue(item); err != nil {
-				return err
-			}
+		if key.Kind != yaml.ScalarNode || key.ShortTag() != yamlStringTag {
+			return fmt.Errorf("additional frontmatter key at line %d must be a string", key.Line)
 		}
-		return nil
-	case map[any]any:
-		return errors.New("contains a mapping that does not have string keys")
-	default:
-		return fmt.Errorf("contains unsupported decoded value of type %T", value)
+		if _, known := canonicalTaskYAMLKeys[key.Value]; known {
+			continue
+		}
+		if err := validateExtraValueNode(mapping.Content[i+1], key.Value, seen); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+func validateExtraValueNode(node *yaml.Node, path string, seen map[*yaml.Node]bool) error {
+	if node.Kind == yaml.AliasNode {
+		node = node.Alias
+	}
+	if node == nil || seen[node] {
+		return nil
+	}
+	seen[node] = true
+
+	switch node.Kind {
+	case yaml.ScalarNode:
+		return nil
+	case yaml.SequenceNode:
+		for i, item := range node.Content {
+			if err := validateExtraValueNode(item, fmt.Sprintf("%s[%d]", path, i), seen); err != nil {
+				return err
+			}
+		}
+		return nil
+	case yaml.MappingNode:
+		return validateExtraMappingNode(node, path, seen)
+	default:
+		return fmt.Errorf("additional frontmatter property %s contains unsupported YAML at line %d", path, node.Line)
+	}
+}
+
+func validateExtraMappingNode(node *yaml.Node, path string, seen map[*yaml.Node]bool) error {
+	for i := 0; i < len(node.Content); i += 2 {
+		key := node.Content[i]
+		if isYAMLMergeKey(key) {
+			if err := validateExtraValueNode(node.Content[i+1], path+".<merge>", seen); err != nil {
+				return err
+			}
+			continue
+		}
+		if key.Kind != yaml.ScalarNode || key.ShortTag() != yamlStringTag {
+			return fmt.Errorf(
+				"additional frontmatter property %s has a non-string mapping key at line %d",
+				path,
+				key.Line,
+			)
+		}
+		if err := validateExtraValueNode(node.Content[i+1], path+"."+key.Value, seen); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func normalizeQuotedMergeKeys(node *yaml.Node, seen map[*yaml.Node]bool) {
@@ -193,7 +204,7 @@ func encodeCanonicalTask(t *Task) (*yaml.Node, error) {
 
 func encodeExtraProperties(extra map[string]any) (*yaml.Node, error) {
 	var encoded yaml.Node
-	if err := encoded.Encode(extra); err != nil {
+	if err := encoded.Encode(prepareExtraValue(extra)); err != nil {
 		return nil, fmt.Errorf("encoding additional frontmatter properties: %w", err)
 	}
 	mapping, err := taskFrontmatterMapping(&encoded)
@@ -202,6 +213,46 @@ func encodeExtraProperties(extra map[string]any) (*yaml.Node, error) {
 	}
 	quoteLiteralMergeKeys(mapping)
 	return mapping, nil
+}
+
+func prepareExtraValue(value any) any {
+	switch typed := value.(type) {
+	case float64:
+		return preservedYAMLFloat(typed)
+	case []any:
+		prepared := make([]any, len(typed))
+		for i, item := range typed {
+			prepared[i] = prepareExtraValue(item)
+		}
+		return prepared
+	case map[string]any:
+		prepared := make(map[string]any, len(typed))
+		for key, item := range typed {
+			prepared[key] = prepareExtraValue(item)
+		}
+		return prepared
+	default:
+		return value
+	}
+}
+
+type preservedYAMLFloat float64
+
+func (value preservedYAMLFloat) MarshalYAML() (any, error) {
+	encoded := strconv.FormatFloat(float64(value), 'g', -1, 64)
+	switch encoded {
+	case "+Inf":
+		encoded = ".inf"
+	case "-Inf":
+		encoded = "-.inf"
+	case "NaN":
+		encoded = ".nan"
+	default:
+		if !strings.ContainsAny(encoded, ".eE") {
+			encoded += ".0"
+		}
+	}
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!float", Value: encoded}, nil
 }
 
 func taskFrontmatterMapping(node *yaml.Node) (*yaml.Node, error) {
