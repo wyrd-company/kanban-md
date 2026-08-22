@@ -347,7 +347,9 @@ func applyCreateParams(cfg *config.Config, t *task.Task, p CreateParams, now tim
 	return nil
 }
 
-// validateDeps validates parent and dependency references for a task.
+// validateDeps validates parent and dependency references for a task: every
+// referenced task must exist, and neither the parent tree nor the depends_on
+// graph may end up with a cycle.
 func validateDeps(cfg *config.Config, t *task.Task) error {
 	if t.Parent != nil {
 		if err := task.ValidateDependencyIDs(cfg.TasksPath(), t.ID, []int{*t.Parent}); err != nil {
@@ -357,6 +359,34 @@ func validateDeps(cfg *config.Config, t *task.Task) error {
 	if len(t.DependsOn) > 0 {
 		if err := task.ValidateDependencyIDs(cfg.TasksPath(), t.ID, t.DependsOn); err != nil {
 			return err
+		}
+	}
+	return validateAcyclic(cfg, t)
+}
+
+// validateAcyclic rejects a parent or dependency that would close a ring.
+//
+// The stored tasks still carry their previous links, and every new edge starts
+// at t, so any ring must run back to t through stored edges alone — reading the
+// board once is enough. Existence is already checked, so a read failure here
+// leaves the links unvalidated rather than blocking the edit.
+func validateAcyclic(cfg *config.Config, t *task.Task) error {
+	if t.Parent == nil && len(t.DependsOn) == 0 {
+		return nil
+	}
+	stored, _, err := task.ReadAllLenient(cfg.TasksPath())
+	if err != nil {
+		return nil
+	}
+
+	if t.Parent != nil {
+		if chain := ParentCyclePath(stored, t.ID, *t.Parent); chain != nil {
+			return task.ValidateParentCycle(chain)
+		}
+	}
+	for _, depID := range t.DependsOn {
+		if chain := DependencyCyclePath(stored, t.ID, depID); chain != nil {
+			return task.ValidateDependencyCycle(chain)
 		}
 	}
 	return nil

@@ -1,6 +1,8 @@
 package task
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/antopolskiy/kanban-md/internal/clierr"
@@ -59,6 +61,32 @@ func ValidateSelfReference(id int) *clierr.Error {
 func ValidateDependencyNotFound(depID int) *clierr.Error {
 	return clierr.Newf(clierr.DependencyNotFound, "dependency task #%d not found", depID).
 		WithDetails(map[string]any{"id": depID})
+}
+
+// ValidateParentCycle returns a CLIError for a parent link that would close a
+// ring in the parent tree. chain names the ring, starting and ending at the
+// task being edited.
+func ValidateParentCycle(chain []int) *clierr.Error {
+	return clierr.Newf(clierr.CircularReference,
+		"parent would create a cycle (%s)", formatIDChain(chain)).
+		WithDetails(map[string]any{"chain": chain})
+}
+
+// ValidateDependencyCycle returns a CLIError for a dependency that would close
+// a ring in the depends_on graph, leaving every task on it permanently blocked.
+func ValidateDependencyCycle(chain []int) *clierr.Error {
+	return clierr.Newf(clierr.CircularReference,
+		"dependency would create a cycle (%s)", formatIDChain(chain)).
+		WithDetails(map[string]any{"chain": chain})
+}
+
+// formatIDChain renders a task ID chain as "#1 → #2 → #1".
+func formatIDChain(chain []int) string {
+	parts := make([]string, 0, len(chain))
+	for _, id := range chain {
+		parts = append(parts, "#"+strconv.Itoa(id))
+	}
+	return strings.Join(parts, " → ")
 }
 
 // ValidateWIPLimit returns a CLIError for WIP limit violations.
