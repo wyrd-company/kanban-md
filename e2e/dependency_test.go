@@ -208,3 +208,103 @@ func TestBlockAndUnblockConflict(t *testing.T) {
 		t.Errorf("error = %q, want conflict message", errResp.Error)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Cycle rejection
+// ---------------------------------------------------------------------------
+
+func TestEditParentRejectsTwoStepCycle(t *testing.T) {
+	kanbanDir := initBoard(t)
+	mustCreateTask(t, kanbanDir, "A")
+	mustCreateTask(t, kanbanDir, "B")
+
+	if r := runKanban(t, kanbanDir, "edit", "1", "--parent", "2"); r.exitCode != 0 {
+		t.Fatalf("first parent edit failed: %s", r.stderr)
+	}
+
+	r := runKanban(t, kanbanDir, "edit", "2", "--parent", "1")
+	if r.exitCode == 0 {
+		t.Fatal("closing the parent ring succeeded, want a rejection")
+	}
+	if !strings.Contains(r.stderr, "cycle") {
+		t.Errorf("stderr = %q, want it to mention a cycle", r.stderr)
+	}
+	if !strings.Contains(r.stderr, "#2 → #1 → #2") {
+		t.Errorf("stderr = %q, want it to name the ring", r.stderr)
+	}
+
+	// The rejected edit must not have been written.
+	var task2 map[string]interface{}
+	runKanbanJSON(t, kanbanDir, &task2, "show", "2")
+	if task2["parent"] != nil {
+		t.Errorf("parent of #2 = %v, want it unchanged after the rejection", task2["parent"])
+	}
+}
+
+func TestEditParentRejectsDeepCycle(t *testing.T) {
+	kanbanDir := initBoard(t)
+	for _, title := range []string{"A", "B", "C"} {
+		mustCreateTask(t, kanbanDir, title)
+	}
+	mustRun(t, kanbanDir, "edit", "2", "--parent", "1")
+	mustRun(t, kanbanDir, "edit", "3", "--parent", "2")
+
+	r := runKanban(t, kanbanDir, "edit", "1", "--parent", "3")
+	if r.exitCode == 0 {
+		t.Fatal("closing a three-step parent ring succeeded, want a rejection")
+	}
+	if !strings.Contains(r.stderr, "cycle") {
+		t.Errorf("stderr = %q, want it to mention a cycle", r.stderr)
+	}
+}
+
+func TestEditParentStillAllowsValidMoves(t *testing.T) {
+	kanbanDir := initBoard(t)
+	for _, title := range []string{"Root", "Epic", "Sibling", "Story"} {
+		mustCreateTask(t, kanbanDir, title)
+	}
+	mustRun(t, kanbanDir, "edit", "2", "--parent", "1")
+	mustRun(t, kanbanDir, "edit", "3", "--parent", "1")
+	mustRun(t, kanbanDir, "edit", "4", "--parent", "2")
+
+	// Moving a leaf between siblings is not a cycle.
+	if r := runKanban(t, kanbanDir, "edit", "4", "--parent", "3"); r.exitCode != 0 {
+		t.Errorf("moving #4 under its uncle was rejected: %s", r.stderr)
+	}
+}
+
+func TestEditDependsOnRejectsCycle(t *testing.T) {
+	kanbanDir := initBoard(t)
+	mustCreateTask(t, kanbanDir, "A")
+	mustCreateTask(t, kanbanDir, "B")
+	mustRun(t, kanbanDir, "edit", "1", "--add-dep", "2")
+
+	r := runKanban(t, kanbanDir, "edit", "2", "--add-dep", "1")
+	if r.exitCode == 0 {
+		t.Fatal("closing the dependency ring succeeded, want a rejection")
+	}
+	if !strings.Contains(r.stderr, "cycle") {
+		t.Errorf("stderr = %q, want it to mention a cycle", r.stderr)
+	}
+}
+
+func TestCreateWithParentRejectsCycleThroughStoredTasks(t *testing.T) {
+	// create validates through the same gate as edit.
+	kanbanDir := initBoard(t)
+	mustCreateTask(t, kanbanDir, "A")
+	mustCreateTask(t, kanbanDir, "B")
+	mustRun(t, kanbanDir, "edit", "1", "--parent", "2")
+
+	// #3 under #1 is fine — no ring, #3 is new.
+	if r := runKanban(t, kanbanDir, "create", "C", "--parent", "1"); r.exitCode != 0 {
+		t.Errorf("creating a child below an existing chain was rejected: %s", r.stderr)
+	}
+}
+
+// mustRun runs a command and fails the test if it does not succeed.
+func mustRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if r := runKanban(t, dir, args...); r.exitCode != 0 {
+		t.Fatalf("%v failed: %s", args, r.stderr)
+	}
+}

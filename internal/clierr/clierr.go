@@ -21,6 +21,7 @@ const (
 	WIPLimitExceeded   = "WIP_LIMIT_EXCEEDED"
 	DependencyNotFound = "DEPENDENCY_NOT_FOUND"
 	SelfReference      = "SELF_REFERENCE"
+	CircularReference  = "CIRCULAR_REFERENCE"
 	NoChanges          = "NO_CHANGES"
 	BoundaryError      = "BOUNDARY_ERROR"
 	StatusConflict     = "STATUS_CONFLICT"

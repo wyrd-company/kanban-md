@@ -295,6 +295,18 @@ the relationship falls back to its stored task ID.
 JSON output always contains a `children` array; compact output adds a
 `children:DONE/TOTAL done` annotation only when children are present.
 
+**Parent links stay acyclic.** `create` and `edit` reject a parent that would
+close a ring, naming the chain it would form:
+
+```
+$ kanban-md edit 2 --parent 1
+Error: parent would create a cycle (#2 → #1 → #2)
+```
+
+`depends_on` is checked the same way, since two tasks that depend on each other
+can never become unblocked. Both checks run wherever the link is written, so
+`create --parent`, `edit --parent` and `edit --add-dep` are all covered.
+
 A representative board for trying the CLI and TUI behavior is available in
 [`examples/issue-11-demo`](examples/issue-11-demo/README.md).
 
