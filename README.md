@@ -168,8 +168,9 @@ properties remain file-only and are not added to table, compact, or JSON output.
 kanban-md reserializes frontmatter as YAML after an update. Formatting,
 comments, and key order are not preserved. Additional properties that use
 anchors, aliases, YAML merges, explicit tags, non-string mapping keys, or other
-unsupported YAML syntax are removed when the task is updated. Unsupported
-additional properties do not prevent kanban-md from loading the task.
+unsupported YAML syntax are outside the preservation boundary. They do not
+prevent kanban-md from loading or updating the task, but their representation
+after an update is not guaranteed.
 
 The `config.yml` tracks board settings:
 

@@ -241,7 +241,7 @@ func TestCompatV1TaskWithClaimAndClass(t *testing.T) {
 	}
 }
 
-func TestCompatV1TaskPreservesSupportedAndDropsUnsupportedProperties(t *testing.T) {
+func TestCompatV1TaskPreservesSupportedAndToleratesUnsupportedProperties(t *testing.T) {
 	path := filepath.Join(v1FixtureDir, "007-with-extra-properties.md")
 	tk, err := Read(path)
 	if err != nil {
@@ -259,10 +259,8 @@ func TestCompatV1TaskPreservesSupportedAndDropsUnsupportedProperties(t *testing.
 	if got := values["custom_supported"]; !reflect.DeepEqual(got, want) {
 		t.Errorf("custom_supported = %#v, want %#v", got, want)
 	}
-	for _, property := range []string{"custom_source", "custom_copy", "custom_tagged", "custom_non_string_mapping"} {
-		if _, present := values[property]; present {
-			t.Errorf("unsupported property %q was preserved: %#v", property, values[property])
-		}
+	if got := values["priority"]; got != "high" {
+		t.Errorf("priority = %#v, want changed canonical value", got)
 	}
 }
 

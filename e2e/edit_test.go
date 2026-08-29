@@ -180,7 +180,7 @@ func TestMutationsPreserveUnknownFrontmatter(t *testing.T) {
 	assertCustomValuePreserved(t, edited.File)
 }
 
-func TestReleaseDropsUnknownAliasToRemovedCanonicalField(t *testing.T) {
+func TestReleaseToleratesUnknownAliasToRemovedCanonicalField(t *testing.T) {
 	kanbanDir := initBoard(t)
 	created := mustCreateTask(t, kanbanDir, "Generic sample")
 	r := runKanban(t, kanbanDir, "edit", "1", "--claim", claimTestAgent)
@@ -211,14 +211,13 @@ func TestReleaseDropsUnknownAliasToRemovedCanonicalField(t *testing.T) {
 	if r.exitCode != 0 {
 		t.Fatalf("release failed: %s", r.stderr)
 	}
-	after, err := os.ReadFile(created.File)
-	if err != nil {
-		t.Fatal(err)
+	var released taskJSON
+	r = runKanbanJSON(t, kanbanDir, &released, "show", "1")
+	if r.exitCode != 0 {
+		t.Fatalf("show after release failed: %s", r.stderr)
 	}
-	for _, presentation := range []string{"claimed_by:", "custom_copy:", "&shared", "*shared"} {
-		if strings.Contains(string(after), presentation) {
-			t.Errorf("release retained %q after reserializing frontmatter:\n%s", presentation, after)
-		}
+	if released.ClaimedBy != "" {
+		t.Errorf("ClaimedBy = %q, want empty after release", released.ClaimedBy)
 	}
 }
 

@@ -22,8 +22,8 @@ The accepted boundary is semantic YAML values:
   string-keyed maps;
 - keep kanban-md fields typed and authoritative;
 - reserialize the complete front matter as YAML after a mutation; and
-- do not preserve formatting, comments, key order, anchors, aliases, or
-  explicit tags.
+- make no preservation guarantee for formatting, comments, key order, anchors,
+  aliases, or explicit tags.
 
 Unknown properties remain file-only. Table, compact, and JSON output continue
 to expose only the typed task contract.
@@ -67,10 +67,11 @@ The unexported map is absent from JSON output. A task constructed in memory has
 no additional values and produces the same canonical YAML as before.
 
 This design retains supported values rather than syntax nodes. Properties that
-use anchors, aliases, merges, or explicit tags are not loaded into the
-additional-property map and disappear on the first write. Comments, styles,
-and source order have no retained representation, but do not make an otherwise
-supported property unsupported.
+use anchors, aliases, merges, or explicit tags are outside the preservation
+boundary. They do not prevent a task from loading or being updated, but their
+representation after an update is not guaranteed. Comments, styles, and source
+order have no retained representation, but do not make an otherwise supported
+property unsupported.
 
 ## Validation boundary
 
@@ -81,12 +82,14 @@ Additional values are retained when their complete syntax tree contains:
 - mappings whose keys are unanchored, implicitly tagged strings and whose
   values recursively satisfy this boundary.
 
-An additional property is omitted in full when its key or any nested value uses
-an anchor, alias, merge, explicit tag, non-string mapping key, or another YAML
-node shape. Unsupported additional properties do not prevent the task from
-loading. Duplicate YAML keys remain invalid through the YAML decoder. Canonical
-keys never enter the additional-property map, so a future typed field with the
-same name becomes authoritative automatically.
+An additional property is not retained as a semantic value when its key or any
+nested value uses an anchor, alias, merge, explicit tag, non-string mapping key,
+or another YAML node shape. Unsupported additional properties do not prevent
+the task from loading or being updated. Their representation after an update is
+not part of the preservation contract. Duplicate YAML keys remain invalid
+through the YAML decoder. Canonical keys never enter the additional-property
+map, so a future typed field with the same name becomes authoritative
+automatically.
 
 ## Compatibility and verification
 
@@ -97,8 +100,8 @@ existing behavior.
 The verification set covers:
 
 - scalar, sequence, null, and nested string-keyed map values;
-- removal of properties containing anchors, aliases, merges, explicit tags, or
-  non-string map keys;
+- successful load and update with properties containing anchors, aliases,
+  merges, explicit tags, or non-string map keys;
 - comment and key-order normalization without dropping supported values;
 - optional canonical field removal and addition;
 - absence from JSON, compact, and table output;

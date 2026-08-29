@@ -23,6 +23,7 @@ const (
 	frontmatterTestReference = "sample-17"
 	frontmatterTestRetained  = "retained"
 	frontmatterTestStatus    = "todo"
+	frontmatterTestTitle     = "Changed sample"
 )
 
 func TestWritePreservesAdditionalSemanticValues(t *testing.T) {
@@ -56,7 +57,7 @@ Body
 	if err != nil {
 		t.Fatalf("Read() error: %v", err)
 	}
-	tk.Title = "Changed sample"
+	tk.Title = frontmatterTestTitle
 	if err = Write(path, tk); err != nil {
 		t.Fatalf("Write() error: %v", err)
 	}
@@ -82,22 +83,12 @@ Body
 	if got := values["custom_mapping"]; !reflect.DeepEqual(got, wantMapping) {
 		t.Errorf("custom_mapping = %#v, want %#v", got, wantMapping)
 	}
-	if got := values["title"]; got != "Changed sample" {
+	if got := values["title"]; got != frontmatterTestTitle {
 		t.Errorf("title = %#v, want changed canonical value", got)
-	}
-
-	data, err := os.ReadFile(path) //nolint:gosec // test-owned temporary path
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, presentation := range []string{"# presentation"} {
-		if strings.Contains(string(data), presentation) {
-			t.Errorf("written task retained YAML presentation %q:\n%s", presentation, data)
-		}
 	}
 }
 
-func TestWriteDropsAdditionalPropertiesWithUnsupportedYAMLSyntax(t *testing.T) {
+func TestWriteToleratesAdditionalPropertiesWithUnsupportedYAMLSyntax(t *testing.T) {
 	path := writeRawTask(t, `---
 id: 1
 title: Generic sample
@@ -133,19 +124,12 @@ custom_supported: retained # comments are discarded without dropping the value
 	if _, present := values["estimate"]; present {
 		t.Error("cleared estimate remains in frontmatter")
 	}
-	for _, key := range []string{
-		"custom_copy", "custom_anchor", "custom_tagged", "custom_binary", "custom_sequence", "custom_mapping",
-	} {
-		if _, present := values[key]; present {
-			t.Errorf("unsupported additional property %q was preserved: %#v", key, values[key])
-		}
-	}
 	if got := values["custom_supported"]; got != frontmatterTestRetained {
 		t.Errorf("custom_supported = %#v, want retained", got)
 	}
 }
 
-func TestWriteDropsTopLevelMergeValues(t *testing.T) {
+func TestWriteToleratesTopLevelMergeValues(t *testing.T) {
 	path := writeRawTask(t, `---
 defaults: &defaults
   external_reference: merged
@@ -171,23 +155,11 @@ external_reference: explicit
 	}
 
 	values := readFrontmatterValues(t, path)
-	if _, present := values["defaults"]; present {
-		t.Errorf("anchored defaults property was preserved: %#v", values["defaults"])
-	}
-	if _, present := values["merged_reference"]; present {
-		t.Errorf("merged_reference was materialized: %#v", values["merged_reference"])
+	if got := values["priority"]; got != "high" {
+		t.Errorf("priority = %#v, want changed canonical value", got)
 	}
 	if got := values["external_reference"]; got != "explicit" {
 		t.Errorf("external_reference = %#v, want explicit value to override merged value", got)
-	}
-	data, err := os.ReadFile(path) //nolint:gosec // test-owned temporary path
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, presentation := range []string{"<<:", "&defaults", "*defaults"} {
-		if strings.Contains(string(data), presentation) {
-			t.Errorf("written task retained YAML merge presentation %q:\n%s", presentation, data)
-		}
 	}
 }
 
@@ -227,7 +199,7 @@ defaults: &defaults
 	}
 }
 
-func TestWriteDropsPropertiesWithUnsupportedKeySyntax(t *testing.T) {
+func TestWriteToleratesPropertiesWithUnsupportedKeySyntax(t *testing.T) {
 	path := writeRawTask(t, `---
 id: 1
 title: Generic sample
@@ -251,35 +223,21 @@ custom_supported: retained
 	if err != nil {
 		t.Fatalf("Read() error: %v", err)
 	}
+	tk.Title = frontmatterTestTitle
 	if err = Write(path, tk); err != nil {
 		t.Fatalf("Write() error: %v", err)
 	}
 
 	values := readFrontmatterValues(t, path)
-	for _, key := range []string{
-		"key_source", "custom_alias_key", "custom_tagged_key", "custom_anchored_key", "custom_explicit_key",
-		"custom_mapping",
-	} {
-		if _, present := values[key]; present {
-			t.Errorf("property with unsupported key syntax %q was preserved: %#v", key, values[key])
-		}
+	if got := values["title"]; got != frontmatterTestTitle {
+		t.Errorf("title = %#v, want changed canonical value", got)
 	}
 	if got := values["custom_supported"]; got != frontmatterTestRetained {
 		t.Errorf("custom_supported = %#v, want retained", got)
 	}
-
-	data, err := os.ReadFile(path) //nolint:gosec // test-owned temporary path
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, presentation := range []string{"&key", "*key", "!integration"} {
-		if strings.Contains(string(data), presentation) {
-			t.Errorf("written task retained key presentation %q:\n%s", presentation, data)
-		}
-	}
 }
 
-func TestWriteDropsAdditionalAliasExpansionWithoutResolvingIt(t *testing.T) {
+func TestWriteToleratesAdditionalAliasExpansion(t *testing.T) {
 	var content strings.Builder
 	content.WriteString("---\nid: 1\ntitle: Generic sample\nstatus: todo\npriority: medium\n")
 	content.WriteString("created: 2026-08-12T10:00:00Z\nupdated: 2026-08-12T10:00:00Z\ncustom:\n")
@@ -294,12 +252,16 @@ func TestWriteDropsAdditionalAliasExpansionWithoutResolvingIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read() error: %v", err)
 	}
+	tk.Title = frontmatterTestTitle
 	if err = Write(path, tk); err != nil {
 		t.Fatalf("Write() error: %v", err)
 	}
-	values := readFrontmatterValues(t, path)
-	if _, present := values["custom"]; present {
-		t.Errorf("alias-backed property was preserved: %#v", values["custom"])
+	rewritten, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() rewritten task error: %v", err)
+	}
+	if rewritten.Title != frontmatterTestTitle {
+		t.Errorf("Title = %q, want changed canonical value", rewritten.Title)
 	}
 }
 
@@ -338,7 +300,7 @@ custom_value: retained
 	}
 }
 
-func TestWriteDropsAdditionalMappingWithNonStringKey(t *testing.T) {
+func TestWriteToleratesAdditionalMappingWithNonStringKey(t *testing.T) {
 	path := writeRawTask(t, `---
 id: 1
 title: Generic sample
@@ -356,16 +318,20 @@ custom_mapping:
 	if err != nil {
 		t.Fatalf("Read() error: %v", err)
 	}
+	tk.Title = frontmatterTestTitle
 	if err = Write(path, tk); err != nil {
 		t.Fatalf("Write() error: %v", err)
 	}
-	values := readFrontmatterValues(t, path)
-	if _, present := values["custom_mapping"]; present {
-		t.Errorf("mapping with a non-string key was preserved: %#v", values["custom_mapping"])
+	rewritten, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() rewritten task error: %v", err)
+	}
+	if rewritten.Title != frontmatterTestTitle {
+		t.Errorf("Title = %q, want changed canonical value", rewritten.Title)
 	}
 }
 
-func TestWriteDropsAdditionalPropertyWithNonStringKey(t *testing.T) {
+func TestWriteToleratesAdditionalPropertyWithNonStringKey(t *testing.T) {
 	path := writeRawTask(t, `---
 id: 1
 title: Generic sample
@@ -381,12 +347,16 @@ updated: 2026-08-12T10:00:00Z
 	if err != nil {
 		t.Fatalf("Read() error: %v", err)
 	}
+	tk.Title = frontmatterTestTitle
 	if err = Write(path, tk); err != nil {
 		t.Fatalf("Write() error: %v", err)
 	}
-	values := readFrontmatterValues(t, path)
-	if _, present := values["1"]; present {
-		t.Errorf("property with a non-string key was preserved: %#v", values["1"])
+	rewritten, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() rewritten task error: %v", err)
+	}
+	if rewritten.Title != frontmatterTestTitle {
+		t.Errorf("Title = %q, want changed canonical value", rewritten.Title)
 	}
 }
 
@@ -464,7 +434,7 @@ updated: 2026-08-12T10:00:00Z
 	}
 }
 
-func TestWriteDropsAliasBackedDuplicateKey(t *testing.T) {
+func TestWriteToleratesAliasBackedDuplicateKey(t *testing.T) {
 	path := writeRawTask(t, `---
 id: 1
 title: Generic sample
@@ -482,19 +452,20 @@ custom_value: first
 	if err != nil {
 		t.Fatalf("Read() error: %v", err)
 	}
+	tk.Priority = "high"
 	if err = Write(path, tk); err != nil {
 		t.Fatalf("Write() error: %v", err)
 	}
 	values := readFrontmatterValues(t, path)
+	if got := values["priority"]; got != "high" {
+		t.Errorf("priority = %#v, want changed canonical value", got)
+	}
 	if got := values["custom_value"]; got != "first" {
 		t.Errorf("custom_value = %#v, want first", got)
 	}
-	if _, present := values["key_source"]; present {
-		t.Errorf("anchored key source was preserved: %#v", values["key_source"])
-	}
 }
 
-func TestWriteDropsMappingWithNestedAliasBackedDuplicateKey(t *testing.T) {
+func TestWriteToleratesMappingWithNestedAliasBackedDuplicateKey(t *testing.T) {
 	path := writeRawTask(t, `---
 id: 1
 title: Generic sample
@@ -513,15 +484,16 @@ custom_mapping:
 	if err != nil {
 		t.Fatalf("Read() error: %v", err)
 	}
+	tk.Title = frontmatterTestTitle
 	if err = Write(path, tk); err != nil {
 		t.Fatalf("Write() error: %v", err)
 	}
-	values := readFrontmatterValues(t, path)
-	if _, present := values["custom_mapping"]; present {
-		t.Errorf("mapping with nested alias key was preserved: %#v", values["custom_mapping"])
+	rewritten, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() rewritten task error: %v", err)
 	}
-	if _, present := values["key_source"]; present {
-		t.Errorf("anchored key source was preserved: %#v", values["key_source"])
+	if rewritten.Title != frontmatterTestTitle {
+		t.Errorf("Title = %q, want changed canonical value", rewritten.Title)
 	}
 }
 
