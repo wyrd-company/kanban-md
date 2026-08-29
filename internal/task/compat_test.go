@@ -2,6 +2,7 @@ package task
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -237,6 +238,31 @@ func TestCompatV1TaskWithClaimAndClass(t *testing.T) {
 	}
 	if tk.Class != "expedite" {
 		t.Errorf("Class = %q, want %q", tk.Class, "expedite")
+	}
+}
+
+func TestCompatV1TaskPreservesSupportedAndDropsUnsupportedProperties(t *testing.T) {
+	path := filepath.Join(v1FixtureDir, "007-with-extra-properties.md")
+	tk, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() v1 task with extra properties: %v", err)
+	}
+
+	tk.Priority = "high"
+	outputPath := filepath.Join(t.TempDir(), "007-with-extra-properties.md")
+	if err = Write(outputPath, tk); err != nil {
+		t.Fatalf("Write() v1 task with extra properties: %v", err)
+	}
+
+	values := readFrontmatterValues(t, outputPath)
+	want := map[string]any{"reference": frontmatterTestReference}
+	if got := values["custom_supported"]; !reflect.DeepEqual(got, want) {
+		t.Errorf("custom_supported = %#v, want %#v", got, want)
+	}
+	for _, property := range []string{"custom_source", "custom_copy", "custom_tagged", "custom_non_string_mapping"} {
+		if _, present := values[property]; present {
+			t.Errorf("unsupported property %q was preserved: %#v", property, values[property])
+		}
 	}
 }
 
