@@ -34,4 +34,8 @@ type Task struct {
 
 	// File is the path to the task file (not in YAML).
 	File string `yaml:"-" json:"file,omitempty"`
+
+	// extraProperties retains semantic values not owned by kanban-md so they
+	// survive typed task mutations without entering command output.
+	extraProperties map[string]any
 }
